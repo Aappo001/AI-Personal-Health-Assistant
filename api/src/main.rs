@@ -1,7 +1,8 @@
-use anyhow::Result;
-use api::{init_db, start_server};
+use std::env;
 
-use api::cli::Args;
+use anyhow::Result;
+use ai_health_assistant_api::{cli::Args, init_db, start_server};
+
 use clap::Parser;
 
 #[tokio::main]
@@ -15,6 +16,6 @@ async fn main() -> Result<()> {
     if !args.db_url.starts_with("sqlite://") {
         args.db_url = format!("sqlite://{}", args.db_url);
     }
-
-    start_server().await
+    let pool = init_db(&args.db_url).await?;
+    start_server(pool).await
 }

@@ -1,5 +1,5 @@
 [package]
-name = "api"
+name = "ai-health-assistant-api"
 version = "0.1.0"
 edition = "2021"
 
