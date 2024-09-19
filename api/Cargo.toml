@@ -12,12 +12,13 @@ axum = { version = "0.7", features = ["ws"] }
 chrono = "0.4.38"
 clap = { version = "4.5.17", features = ["derive"] }
 dirs = "5.0.1"
-jwt = "0.16.0"
+dotenv_codegen = "0.15.0"
+jsonwebtoken = "9.3.0"
 password-auth = "1.0.0"
 pretty_env_logger = "0.5.0"
 regex = "1.10.6"
 serde = "1.0.210"
 serde_json = "1.0.128"
-sqlx = { version = "0.8.2", features = ["runtime-tokio", "macros", "sqlite"] }
+sqlx = { version = "0.8.2", features = ["runtime-tokio", "macros", "sqlite", "chrono"] }
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-tungstenite = "0.24.0"

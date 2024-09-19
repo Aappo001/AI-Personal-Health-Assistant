@@ -1,20 +1,30 @@
 pub mod cli;
 pub mod users;
 use std::{
-    fs::{create_dir_all, File}, path::PathBuf, str::FromStr
+    fs::{create_dir_all, File},
+    path::PathBuf,
+    str::FromStr,
 };
 
 use anyhow::Result;
-use axum::{http::StatusCode, response::{IntoResponse, Response}, routing::post, Router};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::post,
+    Router,
+};
 
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
-use users::create_user;
+use users::{authenticate_user, create_user};
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 pub async fn start_server(pool: SqlitePool) -> Result<()> {
-    let app = Router::new().route("/users/create", post(create_user)).with_state(pool);
+    let app = Router::new()
+        .route("/users/create", post(create_user))
+        .route("/users/auth", post(authenticate_user))
+        .with_state(pool);
     let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(tcp_listener, app).await?;
     Ok(())

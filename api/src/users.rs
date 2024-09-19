@@ -1,7 +1,15 @@
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use anyhow::{anyhow, Result};
+use axum::{
+    body::Body,
+    extract::State,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+    Json,
+};
+use dotenv_codegen::dotenv;
+use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use anyhow::{anyhow, Result};
 
 use crate::AppError;
 
@@ -24,15 +32,17 @@ pub async fn create_user(
     if let Err(err) = check_username(&user_data.username) {
         return Ok((StatusCode::BAD_REQUEST, err));
     }
-    
+    if let Err(err) = check_password(&user_data.password) {
+        return Ok((StatusCode::BAD_REQUEST, err));
+    }
+
     if let Some(existing_user) = sqlx::query!(
         "SELECT username, email FROM users where username = ? or email = ?",
         user_data.username,
         user_data.email
     )
     .fetch_optional(&pool)
-    .await
-    ?
+    .await?
     {
         if existing_user.username == user_data.username {
             return Ok((StatusCode::CONFLICT, "Username already exists".into()));
@@ -55,7 +65,8 @@ pub async fn create_user(
 }
 
 pub fn check_email(email: &str) -> bool {
-    let re = regex::Regex::new(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$").expect("Should be a valid regex");
+    let re = regex::Regex::new(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+        .expect("Should be a valid regex");
     re.is_match(email)
 }
 
@@ -69,4 +80,65 @@ pub fn check_username(username: &str) -> Result<(), Box<str>> {
     } else {
         Ok(())
     }
+}
+
+pub fn check_password(password: &str) -> Result<(), Box<str>> {
+    if password.len() < 8 {
+        Err("Password must be at least 8 characters long".into())
+    } else if password.len() > 128 {
+        Err("Password must be at most 128 characters long".into())
+    } else if !password.chars().all(|c| c.is_ascii()) {
+        Err(r#"Password must only contain alphanumeric characters and ASCII symbols"#.into())
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LoginData {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TokenData {
+    pub id: i64,
+    pub username: String,
+    pub iat: i64,
+}
+
+pub async fn authenticate_user(
+    State(pool): State<SqlitePool>,
+    Json(user_data): Json<LoginData>,
+) -> Result<Response, AppError> {
+    let Some(existing_user) =
+        sqlx::query!("SELECT * FROM users where username = ?", user_data.username)
+            .fetch_optional(&pool)
+            .await?
+    else {
+        return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+    };
+    if let Err(_) =
+        password_auth::verify_password(&user_data.password, &existing_user.password_hash)
+    {
+        return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+    }
+
+    let token_data = TokenData {
+        id: existing_user.id.unwrap(),
+        username: existing_user.username,
+        iat: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
+    };
+
+    let token = encode(
+        &Header::default(),
+        &token_data,
+        &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
+    )?;
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::AUTHORIZATION, format!("Bearer {}", token))
+        .body(Body::from("Successfully authenticated"))?;
+    Ok(response)
 }
