@@ -10,13 +10,13 @@ use anyhow::Result;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Router,
 };
 
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
-use users::{authenticate_user, create_user};
+use users::{authenticate_user, create_user, get_user_profile};
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -24,6 +24,7 @@ pub async fn start_server(pool: SqlitePool) -> Result<()> {
     let app = Router::new()
         .route("/users/create", post(create_user))
         .route("/users/auth", post(authenticate_user))
+        .route("/users/profile/:id", get(get_user_profile))
         .with_state(pool);
     let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(tcp_listener, app).await?;

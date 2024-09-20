@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -156,4 +156,35 @@ pub async fn authorize_user(token: &str) -> Result<UserToken, anyhow::Error> {
     }
 
     Ok(token_data.claims)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PublicUser {
+    pub id: i64,
+    pub username: String,
+    pub first_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+}
+
+pub async fn get_user_profile(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let Some(user) =
+        sqlx::query!("SELECT * FROM users where id = ?", id)
+            .fetch_optional(&pool)
+            .await?
+    else {
+        return Ok((StatusCode::NOT_FOUND, "User not found").into_response());
+    };
+
+    let public_user = PublicUser {
+        id: user.id,
+        username: user.username,
+        first_name: user.first_name,
+        last_name: user.last_name,
+    };
+    
+    Ok((StatusCode::OK, serde_json::to_string(&public_user)?).into_response())
 }
