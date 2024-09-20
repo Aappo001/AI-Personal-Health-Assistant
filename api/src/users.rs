@@ -2,7 +2,10 @@ use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{
+        header::{self, AUTHORIZATION},
+        HeaderMap, StatusCode,
+    },
     response::{IntoResponse, Response},
     Json,
 };
@@ -10,6 +13,7 @@ use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use tokio_tungstenite::tungstenite::handshake::headers;
 
 use crate::AppError;
 
@@ -104,7 +108,7 @@ pub struct LoginData {
 pub struct UserToken {
     pub id: i64,
     pub username: String,
-    pub iat: i64,
+    pub exp: i64,
 }
 
 pub async fn authenticate_user(
@@ -127,7 +131,7 @@ pub async fn authenticate_user(
     let token_data = UserToken {
         id: existing_user.id.unwrap(),
         username: existing_user.username,
-        iat: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
+        exp: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
     };
 
     let token = encode(
@@ -151,7 +155,8 @@ pub async fn authorize_user(token: &str) -> Result<UserToken, anyhow::Error> {
         &DecodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
         &Validation::default(),
     )?;
-    if token_data.claims.iat < chrono::Utc::now().timestamp() {
+
+    if token_data.claims.exp < chrono::Utc::now().timestamp() {
         return Err(anyhow!("Token expired"));
     }
 
@@ -171,10 +176,9 @@ pub async fn get_user_profile(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
-    let Some(user) =
-        sqlx::query!("SELECT * FROM users where id = ?", id)
-            .fetch_optional(&pool)
-            .await?
+    let Some(user) = sqlx::query!("SELECT * FROM users where id = ?", id)
+        .fetch_optional(&pool)
+        .await?
     else {
         return Ok((StatusCode::NOT_FOUND, "User not found").into_response());
     };
@@ -185,6 +189,40 @@ pub async fn get_user_profile(
         first_name: user.first_name,
         last_name: user.last_name,
     };
-    
+
     Ok((StatusCode::OK, serde_json::to_string_pretty(&public_user)?).into_response())
+}
+
+pub async fn delete_user(
+    State(pool): State<SqlitePool>,
+    headers: HeaderMap,
+    Json(user_data): Json<LoginData>,
+) -> Result<Response, AppError> {
+    let Some(token) = headers.get(AUTHORIZATION) else {
+        return Ok((StatusCode::UNAUTHORIZED, "No token provided").into_response());
+    };
+
+    let token_user = authorize_user(token.to_str()?).await?;
+
+    if token_user.username != user_data.username {
+        return Ok((StatusCode::UNAUTHORIZED, "Invalid token").into_response());
+    }
+
+    if sqlx::query!(
+        "SELECT id FROM users where id = ? and username = ?",
+        token_user.id,
+        token_user.username
+    )
+    .fetch_optional(&pool)
+    .await?
+    .is_none()
+    {
+        return Ok((StatusCode::NOT_FOUND, "User does not exist").into_response());
+    }
+
+    sqlx::query!("DELETE FROM users where id = ?", token_user.id)
+        .execute(&pool)
+        .await?;
+
+    Ok((StatusCode::OK, "User deleted").into_response())
 }
