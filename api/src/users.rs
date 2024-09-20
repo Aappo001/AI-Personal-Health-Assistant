@@ -7,7 +7,7 @@ use axum::{
     Json,
 };
 use dotenv_codegen::dotenv;
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
@@ -101,7 +101,7 @@ pub struct LoginData {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct TokenData {
+pub struct UserToken {
     pub id: i64,
     pub username: String,
     pub iat: i64,
@@ -124,7 +124,7 @@ pub async fn authenticate_user(
         return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
     }
 
-    let token_data = TokenData {
+    let token_data = UserToken {
         id: existing_user.id.unwrap(),
         username: existing_user.username,
         iat: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
@@ -141,4 +141,19 @@ pub async fn authenticate_user(
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .body(Body::from("Successfully authenticated"))?;
     Ok(response)
+}
+
+pub async fn authorize_user(token: &str) -> Result<UserToken, anyhow::Error> {
+    let token_data = decode::<UserToken>(
+        token
+            .strip_prefix("Bearer ")
+            .ok_or_else(|| anyhow!("Invalid token"))?,
+        &DecodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
+        &Validation::default(),
+    )?;
+    if token_data.claims.iat < chrono::Utc::now().timestamp() {
+        return Err(anyhow!("Token expired"));
+    }
+
+    Ok(token_data.claims)
 }
