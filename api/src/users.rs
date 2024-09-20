@@ -186,5 +186,5 @@ pub async fn get_user_profile(
         last_name: user.last_name,
     };
     
-    Ok((StatusCode::OK, serde_json::to_string(&public_user)?).into_response())
+    Ok((StatusCode::OK, serde_json::to_string_pretty(&public_user)?).into_response())
 }

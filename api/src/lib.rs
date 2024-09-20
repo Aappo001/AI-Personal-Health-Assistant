@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod users;
+pub mod utils;
 use std::{
     fs::{create_dir_all, File},
     path::PathBuf,
