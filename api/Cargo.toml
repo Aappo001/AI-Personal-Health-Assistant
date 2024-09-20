@@ -1,9 +1,19 @@
 [package]
+authors = ["Cyanism <github@cyan.slmail.me>"]
 name = "ai-health-assistant-api"
+homepage = "https://github.com/Aappo001/AI-Personal-Health-Assistant"
+license = "GPL-3.0"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+opt-level = "z"
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false
 
 [dependencies]
 anyhow = "1.0.89"
