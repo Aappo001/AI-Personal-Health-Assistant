@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
@@ -13,31 +15,74 @@ use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tokio_tungstenite::tungstenite::handshake::headers;
+use validator::{Validate, ValidationError, ValidationErrorsKind};
 
 use crate::AppError;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Validate)]
 pub struct CreateUser {
+    #[validate(email(code = "Invalid email address"))]
     pub email: String,
+    #[validate(length(
+        min = 1,
+        max = 30,
+        code = "First name must be between 1 and 30 characters"
+    ))]
     pub first_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_name: Option<String>,
+    #[validate(
+        length(
+            min = 8,
+            max = 128,
+            code = "Password must be between 8 and 128 characters"
+        ),
+        custom(function = "check_password")
+    )]
     pub password: String,
+    #[validate(
+        length(
+            min = 3,
+            max = 20,
+            code = "Username must be between 3 and 20 characters"
+        ),
+        custom(function = "check_username")
+    )]
     pub username: String,
+}
+
+pub trait PrettyValidate {
+    fn pretty_validate(&self) -> Result<(), String>;
+}
+
+impl<T: Validate> PrettyValidate for T {
+    fn pretty_validate(&self) -> Result<(), String> {
+        if let Err(err) = self.validate() {
+            return Err(err
+                .0
+                .iter()
+                .fold(String::from("Validation Error\n"), |acc, x| {
+                    acc + &match x.1 {
+                        ValidationErrorsKind::Struct(e) => e.to_string(),
+                        ValidationErrorsKind::List(e) => e
+                            .iter()
+                            .fold(String::new(), |acc, y| format!("{} {}\n", acc, y.1)),
+                        ValidationErrorsKind::Field(e) => e.iter().fold(String::new(), |acc, y| {
+                            format!("{}{}: {}\n", acc, x.0, y.code)
+                        }),
+                    }
+                }));
+        }
+        Ok(())
+    }
 }
 
 pub async fn create_user(
     State(pool): State<SqlitePool>,
     Json(user_data): Json<CreateUser>,
-) -> Result<impl IntoResponse, AppError> {
-    if !check_email(&user_data.email) {
-        return Ok((StatusCode::BAD_REQUEST, "Invalid email".into()));
-    }
-    if let Err(err) = check_username(&user_data.username) {
-        return Ok((StatusCode::BAD_REQUEST, err));
-    }
-    if let Err(err) = check_password(&user_data.password) {
-        return Ok((StatusCode::BAD_REQUEST, err));
+) -> Result<Response, AppError> {
+    if let Err(err) = user_data.pretty_validate() {
+        return Ok((StatusCode::BAD_REQUEST, err).into_response());
     }
 
     if let Some(existing_user) = sqlx::query!(
@@ -49,9 +94,9 @@ pub async fn create_user(
     .await?
     {
         if existing_user.username == user_data.username {
-            return Ok((StatusCode::CONFLICT, "Username already exists".into()));
+            return Ok((StatusCode::CONFLICT, "Username already exists").into_response());
         } else {
-            return Ok((StatusCode::CONFLICT, "Email already in use".into()));
+            return Ok((StatusCode::CONFLICT, "Email already in use").into_response());
         }
     }
     let hashed_password = password_auth::generate_hash(&user_data.password);
@@ -65,42 +110,66 @@ pub async fn create_user(
         user_data.last_name
     ).execute(&pool).await?;
 
-    Ok((StatusCode::CREATED, "User created".into()))
+    Ok((StatusCode::CREATED, "User created").into_response())
 }
 
-pub fn check_email(email: &str) -> bool {
-    let re = regex::Regex::new(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
-        .expect("Should be a valid regex");
-    re.is_match(email)
+pub fn check_username(username: &str) -> Result<(), ValidationError> {
+    match username
+        .chars()
+        .try_fold((0, 0), |(alphanumeric, underscore), c| {
+            if c.is_alphanumeric() {
+                ControlFlow::Continue((alphanumeric + 1, underscore))
+            } else if c == '_' {
+                ControlFlow::Continue((alphanumeric, underscore + 1))
+            } else {
+                ControlFlow::Break(ValidationError::new(
+                    r#"must only contain alphanumeric characters and _"#,
+                ))
+            }
+        }) {
+        ControlFlow::Continue((a, u)) => {
+            if a > u {
+                Ok(())
+            } else {
+                // So we don't end up with usernames like "_a_" or "______"
+                Err(ValidationError::new(
+                    r#"must contain more alphanumeric characters than underscores"#,
+                ))
+            }
+        }
+        ControlFlow::Break(e) => Err(e),
+    }
 }
 
-pub fn check_username(username: &str) -> Result<(), Box<str>> {
-    if username.len() < 3 {
-        Err("Username must be at least 3 characters long".into())
-    } else if username.len() > 20 {
-        Err("Username must be at most 20 characters long".into())
-    } else if !username.chars().all(|c| c.is_alphanumeric() || c == '_') {
-        Err(r#"Username must only contain alphanumeric characters and _"#.into())
+pub fn check_password(password: &str) -> Result<(), ValidationError> {
+    if !password.chars().all(|c| c.is_ascii()) {
+        Err(ValidationError::new(
+            r#"must only contain alphanumeric characters and ASCII symbols"#,
+        ))
     } else {
         Ok(())
     }
 }
 
-pub fn check_password(password: &str) -> Result<(), Box<str>> {
-    if password.len() < 8 {
-        Err("Password must be at least 8 characters long".into())
-    } else if password.len() > 128 {
-        Err("Password must be at most 128 characters long".into())
-    } else if !password.chars().all(|c| c.is_ascii()) {
-        Err(r#"Password must only contain alphanumeric characters and ASCII symbols"#.into())
-    } else {
-        Ok(())
-    }
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Validate)]
 pub struct LoginData {
+    #[validate(
+        length(
+            min = 3,
+            max = 20,
+            code = "Username must be between 3 and 20 characters"
+        ),
+        custom(function = "check_username")
+    )]
     pub username: String,
+    #[validate(
+        length(
+            min = 8,
+            max = 128,
+            code = "Password must be between 8 and 128 characters"
+        ),
+        custom(function = "check_password")
+    )]
     pub password: String,
 }
 
@@ -115,6 +184,10 @@ pub async fn authenticate_user(
     State(pool): State<SqlitePool>,
     Json(user_data): Json<LoginData>,
 ) -> Result<Response, AppError> {
+    if let Err(err) = user_data.pretty_validate() {
+        return Ok((StatusCode::BAD_REQUEST, err).into_response());
+    }
+
     let Some(existing_user) =
         sqlx::query!("SELECT * FROM users where username = ?", user_data.username)
             .fetch_optional(&pool)
