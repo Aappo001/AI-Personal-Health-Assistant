@@ -24,7 +24,7 @@ dotenv = "0.15.0"
 anyhow = "1.0.89"
 argon2 = "0.5.3"
 axum = { version = "0.7", features = ["ws"] }
-chrono = "0.4.38"
+chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.17", features = ["derive"] }
 dirs = "5.0.1"
 dotenv_codegen = "0.15.0"

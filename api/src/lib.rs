@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod users;
+pub mod chat;
 pub mod utils;
 use std::{
     fs::{create_dir_all, File},
@@ -15,6 +16,7 @@ use axum::{
     Router,
 };
 
+use chat::get_conversations;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
@@ -27,6 +29,7 @@ pub async fn start_server(pool: SqlitePool) -> Result<()> {
         .route("/users/auth", post(authenticate_user))
         .route("/users/profile/:id", get(get_user_profile))
         .route("/users/delete", delete(delete_user))
+        .route("/chat/conversations", get(get_conversations))
         .with_state(pool);
     let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(tcp_listener, app).await?;
