@@ -48,6 +48,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "dotenv",
  "dotenv_codegen",
  "jsonwebtoken",
  "password-auth",
