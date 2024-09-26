@@ -16,7 +16,7 @@ use axum::{
     Router,
 };
 
-use chat::get_conversations;
+use chat::{get_conversation, get_user_conversations};
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
@@ -29,7 +29,8 @@ pub async fn start_server(pool: SqlitePool) -> Result<()> {
         .route("/users/auth", post(authenticate_user))
         .route("/users/profile/:id", get(get_user_profile))
         .route("/users/delete", delete(delete_user))
-        .route("/chat/conversations", get(get_conversations))
+        .route("/chat/conversations", get(get_user_conversations))
+        .route("/chat/conversations/:id", get(get_conversation))
         .with_state(pool);
     let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(tcp_listener, app).await?;
