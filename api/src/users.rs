@@ -15,6 +15,7 @@ use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use tokio_tungstenite::tungstenite::handshake::headers;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
 use crate::AppError;
@@ -220,9 +221,13 @@ pub async fn authenticate_user(
     Ok(response)
 }
 
-pub async fn authorize_user(token: &str) -> Result<UserToken, anyhow::Error> {
+pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, anyhow::Error> {
+    let Some(token) = headers.get(AUTHORIZATION) else {
+        return Err(anyhow!("No token provided"));
+    };
     let token_data = decode::<UserToken>(
         token
+            .to_str()?
             .strip_prefix("Bearer ")
             .ok_or_else(|| anyhow!("Invalid token"))?,
         &DecodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
@@ -271,11 +276,10 @@ pub async fn delete_user(
     headers: HeaderMap,
     Json(user_data): Json<LoginData>,
 ) -> Result<Response, AppError> {
-    let Some(token) = headers.get(AUTHORIZATION) else {
-        return Ok((StatusCode::UNAUTHORIZED, "No token provided").into_response());
+    let token_user = match authorize_user(&headers){
+        Ok(k) => k,
+        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response())
     };
-
-    let token_user = authorize_user(token.to_str()?).await?;
 
     if token_user.username != user_data.username {
         return Ok((StatusCode::UNAUTHORIZED, "Invalid token").into_response());

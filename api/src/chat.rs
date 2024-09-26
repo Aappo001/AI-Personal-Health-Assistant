@@ -21,14 +21,14 @@ pub async fn get_conversations(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let Some(token) = headers.get(AUTHORIZATION) else {
-        return Ok((StatusCode::UNAUTHORIZED, "No token provided").into_response());
+    let user = match authorize_user(&headers){
+        Ok(k) => k,
+        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response())
     };
-    let user = authorize_user(token.to_str()?).await?;
     let res = serde_json::to_string_pretty(
         &sqlx::query_as!(
             Conversation,
-            "SELECT id, title, created_at, last_message_at  FROM conversations where user_id = ?",
+            "SELECT id, title, created_at, last_message_at  FROM conversations where user_id = ? ORDER BY last_message_at DESC",
             user.id,
         )
         .fetch_all(&pool)
