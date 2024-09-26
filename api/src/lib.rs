@@ -1,27 +1,56 @@
+pub mod chat;
 pub mod cli;
 pub mod users;
-pub mod chat;
 pub mod utils;
 use std::{
+    collections::HashMap,
     fs::{create_dir_all, File},
     path::PathBuf,
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::Result;
 use axum::{
+    extract::FromRef,
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Router,
 };
 
-use chat::{get_conversation, get_user_conversations};
+use chat::{connect_conversation, get_conversation, get_user_conversations};
+use dashmap::DashMap;
 use sqlx::SqlitePool;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::broadcast};
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+
+#[derive(Clone)]
+pub struct AppState {
+    // This is a channel that we can use to send messages to all connected clients on the same
+    // conversation.
+    user_connections: Arc<DashMap<i64, broadcast::Sender<chat::Message>>>,
+    // Connection pool to the database.
+    pool: SqlitePool,
+}
+
+impl AppState {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self {
+            user_connections: Arc::new(DashMap::new()),
+            pool,
+        }
+    }
+}
+
+// Support for automatically converting an `AppState` into an `SqlitePool`
+impl FromRef<AppState> for SqlitePool {
+    fn from_ref(app_state: &AppState) -> SqlitePool {
+        app_state.pool.clone()
+    }
+}
 
 pub async fn start_server(pool: SqlitePool) -> Result<()> {
     let app = Router::new()
@@ -30,8 +59,9 @@ pub async fn start_server(pool: SqlitePool) -> Result<()> {
         .route("/users/profile/:id", get(get_user_profile))
         .route("/users/delete", delete(delete_user))
         .route("/chat/conversations", get(get_user_conversations))
-        .route("/chat/conversations/:id", get(get_conversation))
-        .with_state(pool);
+        .route("/chat/conversations/:id/messages", get(get_conversation))
+        .route("/ws", get(connect_conversation))
+        .with_state(AppState::new(pool.clone()));
     let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(tcp_listener, app).await?;
     Ok(())
