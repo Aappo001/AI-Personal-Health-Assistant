@@ -10,7 +10,7 @@ const mockUser = {
     password: 'testpassword'
 };
 
-// Login route (for simplicity)
+// Login route
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     
