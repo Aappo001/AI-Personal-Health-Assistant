@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use axum::{
     extract::{
-        ws::{WebSocket, WebSocketUpgrade},
+        ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
     http::{header::AUTHORIZATION, HeaderMap, HeaderValue, StatusCode},
@@ -10,9 +10,11 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
+use tokio::sync::broadcast;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 
 use crate::{
     users::{authorize_user, UserToken},
@@ -48,7 +50,7 @@ pub async fn get_user_conversations(
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct Message {
+pub struct ChatMessage {
     pub id: i64,
     pub message: String,
     pub created_at: NaiveDateTime,
@@ -77,7 +79,7 @@ pub async fn get_conversation(
     }
     let res = serde_json::to_string_pretty(
         &sqlx::query_as!(
-            Message,
+            ChatMessage,
             r#"SELECT messages.id, message, messages.created_at, modified_at FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
             WHERE conversations.id = ? 
@@ -91,9 +93,8 @@ pub async fn get_conversation(
 }
 
 // Initializing a websocket connection should look like the following in js
-// let ws = new WebSocket("ws://localhost:3000/ws", 
-// [
-// "soap",
+// let ws = new WebSocket("ws://localhost:3000/ws", [
+// "fakeProtocol",
 // btoa("Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJDeWFuIiwiZXhwIjoxNzI3NDA2MDQ1fQ.lxlii16WpcD0gdkIOWcTCzPSmnlS0Dmp5uFVqY-VxoQ")
 // .replace(/=/g, '')
 // ]);
@@ -129,9 +130,115 @@ pub async fn connect_conversation(
         Ok(k) => k,
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
-    Ok(ws.on_upgrade(|socket| conversations_socket(socket, state, user)))
+    Ok(ws.protocols(["fakeProtocol"]).on_upgrade(|socket| conversations_socket(socket, state, user)))
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub enum SocketResponse {
+    Message(ChatMessage),
+    Error(String),
+    Pong(Vec<u8>),
+    Close,
+}
+
+// TODO: Implement querying the database for previous messages
+// TODO: Implement querying AI model for responses
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
-    let (mut sender, receiver) = stream.split();
+    let (mut sender, mut receiver) = stream.split();
+    let channel = state
+        .user_connections
+        .entry(user.id)
+        .and_modify(|entry| entry.0 += 1)
+        .or_insert_with(|| {
+            let (sender, _) = broadcast::channel(10);
+            (1, sender)
+        });
+
+    let mut rx = channel.1.subscribe();
+    let tx = channel.1.clone();
+
+    let mut send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            match msg {
+                SocketResponse::Message(chat_msg) => {
+                    if let Err(e) = sender
+                        .send(Message::Text(serde_json::to_string(&chat_msg).unwrap()))
+                        .await{
+                        eprintln!("Error sending message: {}", e);
+                    }
+                }
+                SocketResponse::Error(e) => {
+                    let _ = sender.send(Message::Text(e)).await;
+                }
+                SocketResponse::Pong(payload) => {
+                    if let Err(e) = sender.send(Message::Pong(payload)).await {
+                        eprintln!("Error sending pong: {}", e);
+                    }
+                }
+                SocketResponse::Close => {
+                    if let Err(e) = sender.close().await {
+                        eprintln!("Error sending close frame: {}", e);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+
+    let mut receive_task = tokio::spawn(async move {
+        while let Some(msg) = receiver.next().await {
+            match msg {
+                Ok(msg) => match msg {
+                    Message::Text(text) => {
+                        let chat_msg: ChatMessage = match serde_json::from_str::<ChatMessage>(&text)
+                        {
+                            Ok(k) => k,
+                            Err(e) => {
+                                let _ = tx.send(SocketResponse::Error(e.to_string()));
+                                continue;
+                            }
+                        };
+                        if let Err(e) = tx.send(SocketResponse::Message(chat_msg)) {
+                            eprintln!("Error sending message: {}", e);
+                        }
+                    }
+                    Message::Binary(_) => todo!(),
+                    Message::Ping(payload) => {
+                        if let Err(e) = tx.send(SocketResponse::Pong(payload)) {
+                            eprintln!("Error sending pong: {}", e);
+                        }
+                    }
+                    Message::Close(_) => {
+                        if let Err(e) = tx.send(SocketResponse::Close) {
+                            eprintln!("Error sending close frame: {}", e);
+                        }
+                        break;
+                    }
+                    _ => (),
+                },
+                Err(e) => {
+                    eprintln!("Error receiving message: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    // If either of the tasks completes, we want to abort the other one
+    tokio::select! {
+        _ = &mut receive_task => send_task.abort(),
+        _ = &mut send_task => receive_task.abort()
+    };
+
+    dbg!(&user);
+
+    // Remove the user from the connection once all the tasks are
+    // complete and all user devices have disconnected
+    state
+        .user_connections
+        .entry(user.id)
+        .and_modify(|entry| entry.0 -= 1);
+    if state.user_connections.get(&user.id).unwrap().0 == 0 {
+        state.user_connections.remove(&user.id);
+    }
 }

@@ -31,7 +31,7 @@ pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 pub struct AppState {
     // This is a channel that we can use to send messages to all connected clients on the same
     // conversation.
-    user_connections: Arc<DashMap<i64, broadcast::Sender<chat::Message>>>,
+    user_connections: Arc<DashMap<i64, (usize, broadcast::Sender<chat::SocketResponse>)>>,
     // Connection pool to the database.
     pool: SqlitePool,
 }
