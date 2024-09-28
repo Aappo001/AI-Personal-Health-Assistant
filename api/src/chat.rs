@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{cmp, str::FromStr};
 
 use axum::{
     extract::{
@@ -7,6 +7,7 @@ use axum::{
     },
     http::{header::AUTHORIZATION, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
@@ -49,14 +50,56 @@ pub async fn get_user_conversations(
     Ok((StatusCode::OK, res).into_response())
 }
 
+pub async fn create_conversation(
+    State(pool): State<SqlitePool>,
+    headers: HeaderMap,
+    Json(init_message): Json<ChatMessage>,
+) -> Result<Response, AppError> {
+    let user = match authorize_user(&headers) {
+        Ok(k) => k,
+        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
+    };
+    let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
+    // Create the conversation
+    let conversation_id = sqlx::query!(
+        "INSERT INTO conversations (user_id, title) VALUES (?, ?) RETURNING id",
+        user.id,
+        title
+    )
+    .fetch_one(&pool)
+    .await?
+    .id;
+    // Send the initial message
+    sqlx::query!(
+        "INSERT INTO messages (conversation_id, message) VALUES (?, ?)",
+        conversation_id,
+        init_message.message
+    )
+    .execute(&pool)
+    .await?;
+
+    // Return the new conversation for future messages
+    let res = serde_json::to_string_pretty(
+        &sqlx::query_as!(
+            Conversation,
+            "SELECT id, title, created_at, last_message_at  FROM conversations where id = ? ORDER BY last_message_at DESC",
+            conversation_id,
+        )
+        .fetch_one(&pool)
+        .await?,
+    )?;
+    Ok((StatusCode::OK, res).into_response())
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     /// The id of the message
     /// If this is None, the message has not been saved to the database yet
     pub id: Option<i64>,
+    pub conversation_id: i64,
     pub message: String,
-    pub created_at: NaiveDateTime,
-    pub modified_at: NaiveDateTime,
+    pub created_at: Option<NaiveDateTime>,
+    pub modified_at: Option<NaiveDateTime>,
 }
 
 pub async fn get_conversation(
@@ -82,7 +125,7 @@ pub async fn get_conversation(
     let res = serde_json::to_string_pretty(
         &sqlx::query_as!(
             ChatMessage,
-            r#"SELECT messages.id, message, messages.created_at, modified_at FROM messages
+            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
             WHERE conversations.id = ? 
             ORDER BY last_message_at DESC"#,
@@ -132,6 +175,7 @@ pub async fn connect_conversation(
         Ok(k) => k,
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
+
     Ok(ws
         .protocols(["fakeProtocol"])
         .on_upgrade(|socket| conversations_socket(socket, state, user)))
@@ -175,17 +219,22 @@ struct WebSocketMessage {
 // TODO: Implement querying AI model for responses
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
-    let channel = state
+    let mut user_connections = *state
         .user_connections
         .entry(user.id)
-        .and_modify(|entry| entry.0 += 1)
-        .or_insert_with(|| {
-            let (sender, _) = broadcast::channel(10);
-            (1, sender)
-        });
+        .and_modify(|entry| *entry += 1)
+        .or_insert(1).value();
 
-    let mut rx = channel.1.subscribe();
-    let tx = channel.1.clone();
+    if user_connections == 1 {
+        let (tx, _) = broadcast::channel(10);
+        state.user_sockets.insert(user.id, tx);
+    }
+       
+
+    let channel = state.user_sockets.get(&user.id).unwrap();
+
+    let mut rx = channel.subscribe();
+    let tx = channel.clone();
     let state_clone = state.clone();
 
     let mut send_task = tokio::spawn(async move {
@@ -200,7 +249,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     }
                 }
                 SocketResponse::Error(e) => {
-                    let _ = sender.send(Message::Text(e)).await;
+                    sender.send(Message::Text(e)).await.unwrap();
                 }
                 SocketResponse::Pong(payload) => {
                     if let Err(e) = sender.send(Message::Pong(payload)).await {
@@ -286,9 +335,11 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     state
         .user_connections
         .entry(user.id)
-        .and_modify(|entry| entry.0 -= 1);
-    if state.user_connections.get(&user.id).unwrap().0 == 0 {
+        .and_modify(|entry| *entry -= 1);
+    user_connections = *state.user_connections.get(&user.id).unwrap().value();
+    if user_connections == 0 {
         state.user_connections.remove(&user.id);
+        state.user_sockets.remove(&user.id);
     }
 }
 
@@ -300,7 +351,7 @@ async fn request_messages(
     let message_id = request.message_num.unwrap_or(i64::MAX);
     Ok(sqlx::query_as!(
         ChatMessage,
-        r#"SELECT messages.id, message, messages.created_at, modified_at FROM messages
+        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
         WHERE conversations.id = ? AND messages.id < ?
         ORDER BY last_message_at DESC

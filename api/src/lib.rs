@@ -19,7 +19,7 @@ use axum::{
     Router,
 };
 
-use chat::{connect_conversation, get_conversation, get_user_conversations};
+use chat::{connect_conversation, create_conversation, get_conversation, get_user_conversations};
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
@@ -31,7 +31,8 @@ pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 pub struct AppState {
     // This is a channel that we can use to send messages to all connected clients on the same
     // conversation.
-    user_connections: Arc<DashMap<i64, (usize, broadcast::Sender<chat::SocketResponse>)>>,
+    user_sockets: Arc<DashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
+    user_connections: Arc<DashMap<i64, usize>>,
     // Connection pool to the database.
     pool: SqlitePool,
 }
@@ -39,6 +40,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
+            user_sockets: Arc::new(DashMap::new()),
             user_connections: Arc::new(DashMap::new()),
             pool,
         }
@@ -58,8 +60,9 @@ pub async fn start_server(pool: SqlitePool) -> Result<()> {
         .route("/users/auth", post(authenticate_user))
         .route("/users/profile/:id", get(get_user_profile))
         .route("/users/delete", delete(delete_user))
-        .route("/chat/conversations", get(get_user_conversations))
-        .route("/chat/conversations/:id/messages", get(get_conversation))
+        .route("/chat", get(get_user_conversations))
+        .route("/chat/:id/messages", get(get_conversation))
+        .route("/chat/create", post(create_conversation))
         .route("/ws", get(connect_conversation))
         .with_state(AppState::new(pool.clone()));
     let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
