@@ -51,7 +51,9 @@ pub async fn get_user_conversations(
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
-    pub id: i64,
+    /// The id of the message
+    /// If this is None, the message has not been saved to the database yet
+    pub id: Option<i64>,
     pub message: String,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,
@@ -130,7 +132,9 @@ pub async fn connect_conversation(
         Ok(k) => k,
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
-    Ok(ws.protocols(["fakeProtocol"]).on_upgrade(|socket| conversations_socket(socket, state, user)))
+    Ok(ws
+        .protocols(["fakeProtocol"])
+        .on_upgrade(|socket| conversations_socket(socket, state, user)))
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -141,7 +145,33 @@ pub enum SocketResponse {
     Close,
 }
 
-// TODO: Implement querying the database for previous messages
+/// The types of requests that can be made to the websocket
+#[derive(Serialize, Deserialize)]
+enum SocketRequest {
+    /// Send a message to the conversation
+    SendMessage(ChatMessage),
+    /// Requst the previous messages in the conversation
+    /// The i64 is the id of the last message the client received
+    RequestMessages(RequestMessage),
+}
+
+#[derive(Serialize, Deserialize)]
+struct RequestMessage {
+    /// The id of the last message the client received from the conversation
+    /// If this is None, the client has not received any messages yet
+    message_id: Option<i64>,
+    conversation_id: i64,
+    /// The maximum number of messages to request
+    /// If this is None, the client is requesting 50 messages
+    message_num: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct WebSocketMessage {
+    #[serde(flatten)]
+    message_type: SocketRequest,
+}
+
 // TODO: Implement querying AI model for responses
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
@@ -156,6 +186,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 
     let mut rx = channel.1.subscribe();
     let tx = channel.1.clone();
+    let state_clone = state.clone();
 
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
@@ -163,7 +194,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                 SocketResponse::Message(chat_msg) => {
                     if let Err(e) = sender
                         .send(Message::Text(serde_json::to_string(&chat_msg).unwrap()))
-                        .await{
+                        .await
+                    {
                         eprintln!("Error sending message: {}", e);
                     }
                 }
@@ -190,16 +222,35 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
             match msg {
                 Ok(msg) => match msg {
                     Message::Text(text) => {
-                        let chat_msg: ChatMessage = match serde_json::from_str::<ChatMessage>(&text)
-                        {
+                        let msg: WebSocketMessage = match serde_json::from_str(&text) {
                             Ok(k) => k,
                             Err(e) => {
                                 let _ = tx.send(SocketResponse::Error(e.to_string()));
                                 continue;
                             }
                         };
-                        if let Err(e) = tx.send(SocketResponse::Message(chat_msg)) {
-                            eprintln!("Error sending message: {}", e);
+                        match msg.message_type {
+                            SocketRequest::SendMessage(chat_message) => {
+                                if let Err(e) = tx.send(SocketResponse::Message(chat_message)) {
+                                    eprintln!("Error sending message: {}", e);
+                                }
+                            }
+                            SocketRequest::RequestMessages(request_message) => {
+                                match request_messages(&state_clone, &request_message).await {
+                                    Ok(k) => {
+                                        for message in k {
+                                            if let Err(e) =
+                                                tx.send(SocketResponse::Message(message))
+                                            {
+                                                eprintln!("Error sending message: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error requesting messages: {}", e.0);
+                                    }
+                                }
+                            }
                         }
                     }
                     Message::Binary(_) => todo!(),
@@ -230,8 +281,6 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         _ = &mut send_task => receive_task.abort()
     };
 
-    dbg!(&user);
-
     // Remove the user from the connection once all the tasks are
     // complete and all user devices have disconnected
     state
@@ -241,4 +290,25 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     if state.user_connections.get(&user.id).unwrap().0 == 0 {
         state.user_connections.remove(&user.id);
     }
+}
+
+async fn request_messages(
+    state: &AppState,
+    request: &RequestMessage,
+) -> Result<Vec<ChatMessage>, AppError> {
+    let limit = request.message_num.unwrap_or(50);
+    let message_id = request.message_num.unwrap_or(i64::MAX);
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        r#"SELECT messages.id, message, messages.created_at, modified_at FROM messages
+        JOIN conversations ON conversations.id = messages.conversation_id 
+        WHERE conversations.id = ? AND messages.id < ?
+        ORDER BY last_message_at DESC
+        LIMIT ?"#,
+        request.conversation_id,
+        message_id,
+        limit
+    )
+    .fetch_all(&state.pool)
+    .await?)
 }
