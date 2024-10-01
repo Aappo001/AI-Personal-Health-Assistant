@@ -1,4 +1,4 @@
-use std::{cmp, str::FromStr};
+use std::cmp;
 
 use axum::{
     extract::{
@@ -15,7 +15,6 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 
 use crate::{
     users::{authorize_user, UserToken},
@@ -41,7 +40,10 @@ pub async fn get_user_conversations(
     let res = serde_json::to_string_pretty(
         &sqlx::query_as!(
             Conversation,
-            "SELECT id, title, created_at, last_message_at  FROM conversations where user_id = ? ORDER BY last_message_at DESC",
+            r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
+            JOIN user_conversations ON user_conversations.conversation_id = conversations.id
+            WHERE user_conversations.user_id = ? 
+            ORDER BY conversations.last_message_at DESC"#,
             user.id,
         )
         .fetch_all(&pool)
@@ -59,24 +61,38 @@ pub async fn create_conversation(
         Ok(k) => k,
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
+    // Limit the title to 32 characters
     let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
+
+    // Begin a transaction to ensure that both the conversation and the initial message are saved
+    let mut tx = pool.begin().await?;
     // Create the conversation
     let conversation_id = sqlx::query!(
-        "INSERT INTO conversations (user_id, title) VALUES (?, ?) RETURNING id",
-        user.id,
+        "INSERT INTO conversations (title) VALUES (?) RETURNING id",
         title
     )
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?
     .id;
+    // Add the user to the conversation
+    sqlx::query!(
+        "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
+        user.id,
+        conversation_id
+    )
+    .execute(&mut *tx)
+    .await?;
     // Send the initial message
     sqlx::query!(
         "INSERT INTO messages (conversation_id, message) VALUES (?, ?)",
         conversation_id,
         init_message.message
     )
-    .execute(&pool)
+    .execute(&mut *tx)
     .await?;
+
+    // Everything went well, commit the transaction
+    tx.commit().await?;
 
     // Return the new conversation for future messages
     let res = serde_json::to_string_pretty(
@@ -112,7 +128,9 @@ pub async fn get_conversation(
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
     if sqlx::query!(
-        "SELECT id FROM conversations where id = ? and user_id = ?",
+        r#"SELECT id FROM conversations
+            JOIN user_conversations ON user_conversations.conversation_id = conversations.id
+            WHERE id = ? and user_id = ?"#,
         conversation_id,
         user.id
     )
@@ -148,7 +166,7 @@ pub async fn connect_conversation(
     State(state): State<AppState>,
     mut headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    // Doing this header shinangians because websockets are doodoo
+    // Doing this header shinanigans because websockets are doodoo
     // #5 on https://stackoverflow.com/a/77060459 explains what's going on here
     let Some(protocol) = headers.get("sec-websocket-protocol") else {
         return Ok((StatusCode::BAD_REQUEST, "No protocol provided\nPlease provide your authorization token as the second protocol in the list").into_response());
@@ -217,19 +235,22 @@ struct WebSocketMessage {
 }
 
 // TODO: Implement querying AI model for responses
+// TODO: Implement saving messages to the database
+// TODO: Change database schema to accommodate multi-user conversations
+// TODO: Add read receipts to conversations, this requires the previous TODO
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
     let mut user_connections = *state
         .user_connections
         .entry(user.id)
         .and_modify(|entry| *entry += 1)
-        .or_insert(1).value();
+        .or_insert(1)
+        .value();
 
     if user_connections == 1 {
         let (tx, _) = broadcast::channel(10);
         state.user_sockets.insert(user.id, tx);
     }
-       
 
     let channel = state.user_sockets.get(&user.id).unwrap();
 
@@ -280,6 +301,10 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                         };
                         match msg.message_type {
                             SocketRequest::SendMessage(chat_message) => {
+                                if let Err(e) = save_message(&state_clone, &chat_message).await {
+                                    eprintln!("Error saving message: {}", e.0);
+                                }
+
                                 if let Err(e) = tx.send(SocketResponse::Message(chat_message)) {
                                     eprintln!("Error sending message: {}", e);
                                 }
@@ -362,4 +387,15 @@ async fn request_messages(
     )
     .fetch_all(&state.pool)
     .await?)
+}
+
+async fn save_message(state: &AppState, message: &ChatMessage) -> Result<(), AppError> {
+    sqlx::query!(
+        "INSERT INTO messages (conversation_id, message) VALUES (?, ?)",
+        message.conversation_id,
+        message.message
+    )
+    .execute(&state.pool)
+    .await?;
+    Ok(())
 }

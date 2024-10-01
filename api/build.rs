@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => {
             let db_path = current_dir()?.join("api.db");
             let mut env_file = File::create(".env")?;
-            writeln!(env_file, "DATABASE_URL={}", db_path.display())?;
+            writeln!(env_file, "DATABASE_URL={}", db_path.display().to_string().replace('\\', "/"))?;
             db_path
         }
     };
