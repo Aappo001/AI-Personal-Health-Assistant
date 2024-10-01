@@ -17,5 +17,5 @@ async fn main() -> Result<()> {
         args.db_url = format!("sqlite://{}", args.db_url);
     }
     let pool = init_db(&args.db_url).await?;
-    start_server(pool).await
+    start_server(pool, &args).await
 }

@@ -199,11 +199,16 @@ pub async fn connect_conversation(
         .on_upgrade(|socket| conversations_socket(socket, state, user)))
 }
 
+/// The types of responses from the socket
 #[derive(Serialize, Deserialize, Clone)]
 pub enum SocketResponse {
+    /// Message to be sent to the client
     Message(ChatMessage),
+    /// Error to inform the client
     Error(String),
+    /// Pong to the client
     Pong(Vec<u8>),
+    /// Close the connection
     Close,
 }
 

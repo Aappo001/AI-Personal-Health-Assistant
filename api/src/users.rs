@@ -15,7 +15,6 @@ use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tokio_tungstenite::tungstenite::handshake::headers;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
 use crate::AppError;

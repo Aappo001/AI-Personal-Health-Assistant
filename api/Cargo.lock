@@ -54,6 +54,7 @@ dependencies = [
  "dotenv_codegen",
  "futures",
  "jsonwebtoken",
+ "log",
  "password-auth",
  "pretty_env_logger",
  "regex",

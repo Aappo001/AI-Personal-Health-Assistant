@@ -3,7 +3,6 @@ pub mod cli;
 pub mod users;
 pub mod utils;
 use std::{
-    collections::HashMap,
     fs::{create_dir_all, File},
     path::PathBuf,
     str::FromStr,
@@ -20,7 +19,9 @@ use axum::{
 };
 
 use chat::{connect_conversation, create_conversation, get_conversation, get_user_conversations};
+use cli::Args;
 use dashmap::DashMap;
+use log::info;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
@@ -54,7 +55,7 @@ impl FromRef<AppState> for SqlitePool {
     }
 }
 
-pub async fn start_server(pool: SqlitePool) -> Result<()> {
+pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
     let app = Router::new()
         .route("/users/create", post(create_user))
         .route("/users/auth", post(authenticate_user))
@@ -65,7 +66,8 @@ pub async fn start_server(pool: SqlitePool) -> Result<()> {
         .route("/chat/create", post(create_conversation))
         .route("/ws", get(connect_conversation))
         .with_state(AppState::new(pool.clone()));
-    let tcp_listener = TcpListener::bind("0.0.0.0:3000").await?;
+    let tcp_listener = TcpListener::bind(format!("0.0.0.0:{}", args.port)).await?;
+    info!("Server listening on port {}", args.port);
     axum::serve(tcp_listener, app).await?;
     Ok(())
 }
