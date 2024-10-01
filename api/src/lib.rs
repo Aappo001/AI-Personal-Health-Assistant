@@ -28,6 +28,12 @@ use users::{authenticate_user, create_user, delete_user, get_user_profile};
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
+#[cfg(windows)]
+pub const PROTOCOL: &str = "sqlite:///";
+
+#[cfg(unix)]
+pub const PROTOCOL: &str = "sqlite://";
+
 #[derive(Clone)]
 pub struct AppState {
     // This is a channel that we can use to send messages to all connected clients on the same
@@ -73,7 +79,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 }
 
 pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
-    if let Ok(path) = PathBuf::from_str(db_url.strip_prefix("sqlite://").unwrap_or(db_url)) {
+    if let Ok(path) = PathBuf::from_str(db_url.strip_prefix(PROTOCOL).unwrap_or(db_url)) {
         if !path.is_file() {
             create_dir_all(path.parent().expect("Expected parent directory to exist"))?;
             File::create(&path)?;

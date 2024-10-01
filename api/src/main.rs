@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::Result;
-use ai_health_assistant_api::{cli::Args, init_db, start_server};
+use ai_health_assistant_api::{cli::Args, init_db, start_server, PROTOCOL};
 
 use clap::Parser;
 
@@ -13,8 +13,8 @@ async fn main() -> Result<()> {
     pretty_env_logger::init();
 
     let mut args = Args::parse();
-    if !args.db_url.starts_with("sqlite://") {
-        args.db_url = format!("sqlite://{}", args.db_url);
+    if !args.db_url.starts_with(PROTOCOL) {
+        args.db_url = format!("{}{}", PROTOCOL, args.db_url);
     }
     let pool = init_db(&args.db_url).await?;
     start_server(pool, &args).await

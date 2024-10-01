@@ -3,6 +3,10 @@ use std::{env::current_dir, fs::File, io::Write, path::PathBuf};
 use dotenv::dotenv;
 use sqlx::SqlitePool;
 
+#[cfg(windows)]
+const PROTOCOL: &str = "sqlite:///";
+
+#[cfg(unix)]
 const PROTOCOL: &str = "sqlite://";
 
 // This function creates the database file and runs the migrations before attempting to compile the
@@ -26,7 +30,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => {
             let db_path = current_dir()?.join("api.db");
             let mut env_file = File::create(".env")?;
-            writeln!(env_file, "DATABASE_URL={}", db_path.display().to_string().replace('\\', "/"))?;
+
+            if cfg!(windows) {
+                // We know that windows paths use `\` instead of `/` as file separators and file names cannot contain `\` inside them.
+                // Therefore, every `\` we encounter is a file separator and can safely be replaced with `/`.
+                writeln!(env_file, "DATABASE_URL={}{}", PROTOCOL, db_path.display().to_string().replace('\\', "/"))?;
+            } else {
+                writeln!(env_file, "DATABASE_URL={}{}", PROTOCOL, db_path.display())?;
+            }
             db_path
         }
     };
