@@ -1,5 +1,6 @@
 use std::cmp;
 
+use anyhow::anyhow;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -114,6 +115,7 @@ pub struct ChatMessage {
     pub id: Option<i64>,
     pub conversation_id: i64,
     pub message: String,
+    pub user_id: i64,
     pub created_at: Option<NaiveDateTime>,
     pub modified_at: Option<NaiveDateTime>,
 }
@@ -143,7 +145,7 @@ pub async fn get_conversation(
     let res = serde_json::to_string_pretty(
         &sqlx::query_as!(
             ChatMessage,
-            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id FROM messages
+            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
             WHERE conversations.id = ? 
             ORDER BY last_message_at DESC"#,
@@ -204,6 +206,8 @@ pub async fn connect_conversation(
 pub enum SocketResponse {
     /// Message to be sent to the client
     Message(ChatMessage),
+    /// Invite to a conversation
+    Invite(InviteData),
     /// Error to inform the client
     Error(String),
     /// Pong to the client
@@ -212,11 +216,22 @@ pub enum SocketResponse {
     Close,
 }
 
+/// Invite data to a conversation
+#[derive(Serialize, Deserialize, Clone)]
+pub struct InviteData {
+    pub conversation_id: i64,
+    pub inviter: i64,
+    pub invitee: i64,
+    pub invited_at: Option<NaiveDateTime>,
+}
+
 /// The types of requests that can be made to the websocket
 #[derive(Serialize, Deserialize)]
 enum SocketRequest {
     /// Send a message to the conversation
     SendMessage(ChatMessage),
+    /// Invite a user to the conversation
+    InviteUser(InviteData),
     /// Requst the previous messages in the conversation
     /// The i64 is the id of the last message the client received
     RequestMessages(RequestMessage),
@@ -262,6 +277,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     let mut rx = channel.subscribe();
     let tx = channel.clone();
     let state_clone = state.clone();
+    let user_clone = user.clone();
 
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
@@ -272,6 +288,14 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                         .await
                     {
                         eprintln!("Error sending message: {}", e);
+                    }
+                }
+                SocketResponse::Invite(invite) => {
+                    if let Err(e) = sender
+                        .send(Message::Text(serde_json::to_string(&invite).unwrap()))
+                        .await
+                    {
+                        eprintln!("Error sending invite data: {}", e);
                     }
                 }
                 SocketResponse::Error(e) => {
@@ -306,16 +330,38 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                         };
                         match msg.message_type {
                             SocketRequest::SendMessage(chat_message) => {
-                                if let Err(e) = save_message(&state_clone, &chat_message).await {
+                                if let Err(e) =
+                                    save_message(&state_clone.pool, &chat_message, &user_clone)
+                                        .await
+                                {
                                     eprintln!("Error saving message: {}", e.0);
-                                }
-
-                                if let Err(e) = tx.send(SocketResponse::Message(chat_message)) {
+                                    tx.send(SocketResponse::Error(e.0.to_string()));
+                                } else if let Err(e) =
+                                    tx.send(SocketResponse::Message(chat_message))
+                                {
                                     eprintln!("Error sending message: {}", e);
+                                    tx.send(SocketResponse::Error(e.to_string()));
+                                }
+                            }
+                            SocketRequest::InviteUser(invite) => {
+                                if let Err(e) =
+                                    invite_user(&state_clone.pool, &invite, &user_clone).await
+                                {
+                                    eprintln!("Error inviting user: {}", e.0);
+                                    tx.send(SocketResponse::Error(e.0.to_string()));
+                                } else if let Err(e) = tx.send(SocketResponse::Invite(invite)) {
+                                    eprintln!("Error sending invite message: {}", e);
+                                    tx.send(SocketResponse::Error(e.to_string()));
                                 }
                             }
                             SocketRequest::RequestMessages(request_message) => {
-                                match request_messages(&state_clone, &request_message).await {
+                                match request_messages(
+                                    &state_clone.pool,
+                                    &request_message,
+                                    &user_clone,
+                                )
+                                .await
+                                {
                                     Ok(k) => {
                                         for message in k {
                                             if let Err(e) =
@@ -332,7 +378,9 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                             }
                         }
                     }
-                    Message::Binary(_) => todo!(),
+                    Message::Binary(_) => {
+                        //TODO
+                    }
                     Message::Ping(payload) => {
                         if let Err(e) = tx.send(SocketResponse::Pong(payload)) {
                             eprintln!("Error sending pong: {}", e);
@@ -374,14 +422,28 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 }
 
 async fn request_messages(
-    state: &AppState,
+    pool: &SqlitePool,
     request: &RequestMessage,
+    user: &UserToken,
 ) -> Result<Vec<ChatMessage>, AppError> {
+    if sqlx::query!(
+        r#"SELECT conversation_id FROM user_conversations
+            WHERE conversation_id = ? and user_id = ?"#,
+        request.conversation_id,
+        user.id
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_none()
+    {
+        return Err(anyhow!("User is not in the conversation").into());
+    }
+
     let limit = request.message_num.unwrap_or(50);
     let message_id = request.message_num.unwrap_or(i64::MAX);
     Ok(sqlx::query_as!(
         ChatMessage,
-        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id FROM messages
+        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
         WHERE conversations.id = ? AND messages.id < ?
         ORDER BY last_message_at DESC
@@ -390,17 +452,87 @@ async fn request_messages(
         message_id,
         limit
     )
-    .fetch_all(&state.pool)
+    .fetch_all(pool)
     .await?)
 }
 
-async fn save_message(state: &AppState, message: &ChatMessage) -> Result<(), AppError> {
+async fn save_message(
+    pool: &SqlitePool,
+    message: &ChatMessage,
+    user: &UserToken,
+) -> Result<(), AppError> {
+    if user.id != message.user_id {
+        return Err(anyhow!("User does not have permission to send message").into());
+    }
+    if sqlx::query!(
+        "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+        message.conversation_id,
+        user.id
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_none()
+    {
+        return Err(anyhow!("User is not in the conversation").into());
+    }
     sqlx::query!(
         "INSERT INTO messages (conversation_id, message) VALUES (?, ?)",
         message.conversation_id,
         message.message
     )
-    .execute(&state.pool)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn invite_user(
+    pool: &SqlitePool,
+    message: &InviteData,
+    user: &UserToken,
+) -> Result<(), AppError> {
+    if user.id != message.inviter {
+        return Err(anyhow!("User does not have permission to invite user").into());
+    }
+
+    if sqlx::query!(
+        "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+        message.conversation_id,
+        user.id
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_none()
+    {
+        return Err(anyhow!("User is not in the conversation").into());
+    }
+
+    // Check if the user is already in the conversation
+    if sqlx::query!(
+        "SELECT conversation_id FROM user_conversations WHERE user_id = ? AND conversation_id = ?",
+        message.invitee,
+        message.conversation_id
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some()
+    {
+        return Err(anyhow!("User is already in the conversation").into());
+    }
+    // Check if the user is in the database
+    if sqlx::query!("SELECT id FROM users WHERE id = ?", message.invitee)
+        .fetch_optional(pool)
+        .await?
+        .is_none()
+    {
+        return Err(anyhow!("User does not exist").into());
+    }
+    // Add the user to the conversation
+    sqlx::query!(
+        "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
+        message.invitee,
+        message.conversation_id
+    )
+    .execute(pool)
     .await?;
     Ok(())
 }

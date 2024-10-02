@@ -173,7 +173,7 @@ pub struct LoginData {
     pub password: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserToken {
     pub id: i64,
     pub username: String,
