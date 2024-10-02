@@ -38,7 +38,7 @@ pub async fn get_user_conversations(
         Ok(k) => k,
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
-    let res = serde_json::to_string_pretty(
+    let res = 
         &sqlx::query_as!(
             Conversation,
             r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
@@ -48,9 +48,8 @@ pub async fn get_user_conversations(
             user.id,
         )
         .fetch_all(&pool)
-        .await?,
-    )?;
-    Ok((StatusCode::OK, res).into_response())
+        .await?;
+    Ok((StatusCode::OK, Json(res)).into_response())
 }
 
 pub async fn create_conversation(
@@ -96,16 +95,14 @@ pub async fn create_conversation(
     tx.commit().await?;
 
     // Return the new conversation for future messages
-    let res = serde_json::to_string_pretty(
-        &sqlx::query_as!(
+    let res = sqlx::query_as!(
             Conversation,
             "SELECT id, title, created_at, last_message_at  FROM conversations where id = ? ORDER BY last_message_at DESC",
             conversation_id,
         )
         .fetch_one(&pool)
-        .await?,
-    )?;
-    Ok((StatusCode::OK, res).into_response())
+        .await?;
+    Ok((StatusCode::OK, Json(res)).into_response())
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -142,8 +139,7 @@ pub async fn get_conversation(
     {
         return Ok((StatusCode::NOT_FOUND, "Conversation not found").into_response());
     }
-    let res = serde_json::to_string_pretty(
-        &sqlx::query_as!(
+    let res = &sqlx::query_as!(
             ChatMessage,
             r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
@@ -152,9 +148,8 @@ pub async fn get_conversation(
             conversation_id,
         )
         .fetch_all(&pool)
-        .await?,
-    )?;
-    Ok((StatusCode::OK, res).into_response())
+        .await?;
+    Ok((StatusCode::OK, Json(res)).into_response())
 }
 
 // Initializing a websocket connection should look like the following in js
