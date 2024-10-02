@@ -5,6 +5,7 @@ use ai_health_assistant_api::{cli::Args, init_db, start_server, PROTOCOL};
 
 use clap::Parser;
 
+// TODO: Add better, more integrated and descriptive logging
 #[tokio::main]
 async fn main() -> Result<()> {
     if env::var("RUST_LOG").is_err() {

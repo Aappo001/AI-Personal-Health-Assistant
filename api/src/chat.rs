@@ -25,7 +25,7 @@ use crate::{
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct Conversation {
     pub id: i64,
-    pub title: String,
+    pub title: Option<String>,
     pub created_at: NaiveDateTime,
     pub last_message_at: NaiveDateTime,
 }
@@ -38,17 +38,16 @@ pub async fn get_user_conversations(
         Ok(k) => k,
         Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
-    let res = 
-        &sqlx::query_as!(
-            Conversation,
-            r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
+    let res = &sqlx::query_as!(
+        Conversation,
+        r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
             JOIN user_conversations ON user_conversations.conversation_id = conversations.id
             WHERE user_conversations.user_id = ? 
             ORDER BY conversations.last_message_at DESC"#,
-            user.id,
-        )
-        .fetch_all(&pool)
-        .await?;
+        user.id,
+    )
+    .fetch_all(&pool)
+    .await?;
     Ok((StatusCode::OK, Json(res)).into_response())
 }
 
@@ -97,7 +96,7 @@ pub async fn create_conversation(
     // Return the new conversation for future messages
     let res = sqlx::query_as!(
             Conversation,
-            "SELECT id, title, created_at, last_message_at  FROM conversations where id = ? ORDER BY last_message_at DESC",
+            "SELECT id, title, created_at, last_message_at FROM conversations where id = ? ORDER BY last_message_at DESC",
             conversation_id,
         )
         .fetch_one(&pool)
@@ -214,9 +213,9 @@ pub enum SocketResponse {
 /// Invite data to a conversation
 #[derive(Serialize, Deserialize, Clone)]
 pub struct InviteData {
-    pub conversation_id: i64,
+    pub conversation_id: Option<i64>,
     pub inviter: i64,
-    pub invitee: i64,
+    pub invitees: Vec<i64>,
     pub invited_at: Option<NaiveDateTime>,
 }
 
@@ -250,9 +249,8 @@ struct WebSocketMessage {
 }
 
 // TODO: Implement querying AI model for responses
-// TODO: Implement saving messages to the database
-// TODO: Change database schema to accommodate multi-user conversations
-// TODO: Add read receipts to conversations, this requires the previous TODO
+// TODO: Add read receipts to conversations
+// TODO: Refactor this function so the receive and send tasks are separate functions
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
     let mut user_connections = *state
@@ -331,11 +329,28 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                                 {
                                     eprintln!("Error saving message: {}", e.0);
                                     tx.send(SocketResponse::Error(e.0.to_string()));
-                                } else if let Err(e) =
-                                    tx.send(SocketResponse::Message(chat_message))
-                                {
-                                    eprintln!("Error sending message: {}", e);
-                                    tx.send(SocketResponse::Error(e.to_string()));
+                                } else {
+                                    // Find all the users in the conversation
+                                    let Ok(users) = sqlx::query!(
+                                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
+                                        chat_message.conversation_id
+                                    ).fetch_all(&state_clone.pool).await else {
+                                        continue;
+                                    };
+                                    // Send the message to all the users in the conversation
+                                    for user in users {
+                                        // Only send the message to users who are connected
+                                        if let Some(user) =
+                                            state_clone.user_sockets.get(&user.user_id)
+                                        {
+                                            if let Err(e) = user
+                                                .send(SocketResponse::Message(chat_message.clone()))
+                                            {
+                                                eprintln!("Error sending message: {}", e);
+                                                user.send(SocketResponse::Error(e.to_string()));
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             SocketRequest::InviteUser(invite) => {
@@ -482,52 +497,81 @@ async fn save_message(
 
 async fn invite_user(
     pool: &SqlitePool,
-    message: &InviteData,
+    invite: &InviteData,
     user: &UserToken,
 ) -> Result<(), AppError> {
-    if user.id != message.inviter {
-        return Err(anyhow!("User does not have permission to invite user").into());
+    if user.id != invite.inviter {
+        return Err(anyhow!("User does not have permission to invite users").into());
     }
+    let conversation_id = match invite.conversation_id {
+        // Conversation already exists so check if inviter is in it
+        Some(conversation_id) => {
+            if sqlx::query!(
+                "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+                conversation_id,
+                user.id
+            )
+                .fetch_optional(pool)
+                .await?
+                .is_none()
+            {
+                return Err(anyhow!("Inviter is not in the conversation").into());
+            }
+            conversation_id
+        }
+        // Conversation does not exist so create a new one and invite the inviter
+        None => {
+            let mut tx = pool.begin().await?;
+            let conversation_id = sqlx::query!("INSERT INTO conversations DEFAULT VALUES")
+                .execute(&mut *tx)
+                .await?
+                .last_insert_rowid();
+            sqlx::query!(
+                "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
+                user.id,
+                conversation_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            conversation_id
+        }
+    };
 
-    if sqlx::query!(
-        "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
-        message.conversation_id,
-        user.id
-    )
-    .fetch_optional(pool)
-    .await?
-    .is_none()
-    {
-        return Err(anyhow!("User is not in the conversation").into());
+    // Begin a transaction to ensure that all the users are added to the converation at the same
+    // time
+    let mut tx = pool.begin().await?;
+    for invitee in &invite.invitees {
+        // Check if the user is already in the conversation
+        if sqlx::query!(
+            "SELECT conversation_id FROM user_conversations WHERE user_id = ? AND conversation_id = ?",
+            invitee,
+            conversation_id
+        )
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some()
+        {
+            return Err(anyhow!("User {} is already in the conversation", invitee).into());
+        }
+        // Check if the user is in the database
+        if sqlx::query!("SELECT id FROM users WHERE id = ?", invitee)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_none()
+        {
+            return Err(anyhow!("User {} does not exist", invitee).into());
+        }
+        // Add the user to the conversation
+        sqlx::query!(
+            "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
+            invitee,
+            conversation_id
+        )
+        .execute(pool)
+        .await?;
     }
+    tx.commit().await?;
 
-    // Check if the user is already in the conversation
-    if sqlx::query!(
-        "SELECT conversation_id FROM user_conversations WHERE user_id = ? AND conversation_id = ?",
-        message.invitee,
-        message.conversation_id
-    )
-    .fetch_optional(pool)
-    .await?
-    .is_some()
-    {
-        return Err(anyhow!("User is already in the conversation").into());
-    }
-    // Check if the user is in the database
-    if sqlx::query!("SELECT id FROM users WHERE id = ?", message.invitee)
-        .fetch_optional(pool)
-        .await?
-        .is_none()
-    {
-        return Err(anyhow!("User does not exist").into());
-    }
-    // Add the user to the conversation
-    sqlx::query!(
-        "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
-        message.invitee,
-        message.conversation_id
-    )
-    .execute(pool)
-    .await?;
     Ok(())
 }
