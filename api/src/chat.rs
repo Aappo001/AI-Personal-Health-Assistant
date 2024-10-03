@@ -226,6 +226,8 @@ enum SocketRequest {
     SendMessage(ChatMessage),
     /// Invite a user to the conversation
     InviteUser(InviteData),
+    /// Message has been read
+    ReadMessage,
     /// Requst the previous messages in the conversation
     /// The i64 is the id of the last message the client received
     RequestMessages(RequestMessage),
@@ -364,6 +366,12 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                                     tx.send(SocketResponse::Error(e.to_string()));
                                 }
                             }
+                            SocketRequest::ReadMessage => {
+                                if let Err(e) = read_event(&state_clone.pool, &user_clone).await{
+                                    eprintln!("Error saving read event: {}", e.0);
+                                    tx.send(SocketResponse::Error(e.0.to_string()));
+                                }
+                            }
                             SocketRequest::RequestMessages(request_message) => {
                                 match request_messages(
                                     &state_clone.pool,
@@ -466,6 +474,7 @@ async fn request_messages(
     .await?)
 }
 
+/// Save a message to the database
 async fn save_message(
     pool: &SqlitePool,
     message: &ChatMessage,
@@ -495,6 +504,7 @@ async fn save_message(
     Ok(())
 }
 
+/// Invite multiple users to a conversation
 async fn invite_user(
     pool: &SqlitePool,
     invite: &InviteData,
@@ -573,5 +583,18 @@ async fn invite_user(
     }
     tx.commit().await?;
 
+    Ok(())
+}
+
+/// Mark the conversation as read by the logged in user
+async fn read_event(pool: &SqlitePool, user: &UserToken) -> Result<(), AppError> {
+    let now = chrono::Utc::now();
+    sqlx::query!(
+        "UPDATE user_conversations SET last_read_at = ? WHERE user_id = ?",
+        now,
+        user.id
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
