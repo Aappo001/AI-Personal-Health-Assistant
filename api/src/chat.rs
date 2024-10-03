@@ -12,10 +12,11 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
-use futures::{SinkExt, StreamExt};
+use futures::{stream::SplitSink, SinkExt, StreamExt};
+use log::error;
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self};
 
 use crate::error::AppError;
 use crate::{
@@ -106,7 +107,7 @@ pub async fn create_conversation(
     Ok((StatusCode::OK, Json(res)).into_response())
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ChatMessage {
     /// The id of the message
     /// If this is None, the message has not been saved to the database yet
@@ -198,7 +199,7 @@ pub async fn connect_conversation(
 }
 
 /// The types of responses from the socket
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum SocketResponse {
     /// Message to be sent to the client
     Message(ChatMessage),
@@ -208,12 +209,21 @@ pub enum SocketResponse {
     Error(String),
     /// Pong to the client
     Pong(Vec<u8>),
+    /// Read receipt
+    ReadEvent(ReadEvent),
     /// Close the connection
     Close,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ReadEvent {
+    pub conversation_id: i64,
+    pub user_id: i64,
+    pub timestamp: NaiveDateTime,
+}
+
 /// Invite data to a conversation
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct InviteData {
     pub conversation_id: Option<i64>,
     pub inviter: i64,
@@ -253,7 +263,6 @@ struct WebSocketMessage {
 }
 
 // TODO: Implement querying AI model for responses
-// TODO: Add read receipts to conversations
 // TODO: Refactor this function so the receive and send tasks are separate functions
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
@@ -276,168 +285,57 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     let state_clone = state.clone();
     let user_clone = user.clone();
 
+    // Send messages to the client over the websocket
+    // Messages are received from the broadcast channel
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
-            match msg {
-                SocketResponse::Message(chat_msg) => {
-                    if let Err(e) = sender
-                        .send(Message::Text(serde_json::to_string(&chat_msg).unwrap()))
-                        .await
-                    {
-                        eprintln!("Error sending message: {}", e);
-                    }
-                }
-                SocketResponse::Invite(invite) => {
-                    if let Err(e) = sender
-                        .send(Message::Text(serde_json::to_string(&invite).unwrap()))
-                        .await
-                    {
-                        eprintln!("Error sending invite data: {}", e);
-                    }
-                }
-                SocketResponse::Error(e) => {
-                    sender.send(Message::Text(e)).await.unwrap();
-                }
-                SocketResponse::Pong(payload) => {
-                    if let Err(e) = sender.send(Message::Pong(payload)).await {
-                        eprintln!("Error sending pong: {}", e);
-                    }
-                }
-                SocketResponse::Close => {
-                    if let Err(e) = sender.close().await {
-                        eprintln!("Error sending close frame: {}", e);
-                    }
-                    break;
+            match send_message(&mut sender, msg).await {
+                // The message was sent successfully to the client, continue
+                Ok(Some(())) => (),
+                // The connection was closed, break the loop
+                Ok(None) => break,
+                // There was an error sending the message, but the connection is still open
+                Err(e) => {
+                    error!("Error sending message: {}", e);
+                    sender.send(Message::Text(e.to_string())).await.unwrap();
                 }
             }
         }
     });
 
+    // Handle incoming messages from the client over the websocket
     let mut receive_task = tokio::spawn(async move {
         while let Some(msg) = receiver.next().await {
             match msg {
-                Ok(msg) => match msg {
-                    Message::Text(text) => {
-                        let msg: WebSocketMessage = match serde_json::from_str(&text) {
-                            Ok(k) => k,
-                            Err(e) => {
-                                let _ = tx.send(SocketResponse::Error(e.to_string()));
-                                continue;
-                            }
-                        };
-                        match msg.message_type {
-                            SocketRequest::SendMessage(chat_message) => {
-                                if let Err(e) =
-                                    save_message(&state_clone.pool, &chat_message, &user_clone)
-                                        .await
-                                {
-                                    eprintln!("Error saving message: {}", e);
-                                    tx.send(SocketResponse::Error(e.to_string()));
-                                } else {
-                                    // Find all the users in the conversation
-                                    let Ok(users) = sqlx::query!(
-                                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
-                                        chat_message.conversation_id
-                                    ).fetch_all(&state_clone.pool).await else {
-                                        continue;
-                                    };
-                                    // Send the message to all the users in the conversation
-                                    for user in users {
-                                        // Only send the message to users who are connected
-                                        if let Some(user) =
-                                            state_clone.user_sockets.get(&user.user_id)
-                                        {
-                                            if let Err(e) = user
-                                                .send(SocketResponse::Message(chat_message.clone()))
-                                            {
-                                                eprintln!("Error sending message: {}", e);
-                                                user.send(SocketResponse::Error(e.to_string()));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            SocketRequest::InviteUser(invite) => {
-                                if let Err(e) =
-                                    invite_user(&state_clone.pool, &invite, &user_clone).await
-                                {
-                                    eprintln!("Error inviting user: {}", e);
-                                    tx.send(SocketResponse::Error(e.to_string()));
-                                } else if let Err(e) = tx.send(SocketResponse::Invite(invite)) {
-                                    eprintln!("Error sending invite message: {}", e);
-                                    tx.send(SocketResponse::Error(e.to_string()));
-                                }
-                            }
-                            SocketRequest::ReadMessage(conversation_id) => {
-                                if let Err(e) =
-                                    read_event(&state_clone.pool, conversation_id, &user_clone)
-                                        .await
-                                {
-                                    eprintln!("Error saving read event: {}", e);
-                                    tx.send(SocketResponse::Error(e.to_string()));
-                                }
-                            }
-                            SocketRequest::RequestMessages(request_message) => {
-                                match request_messages(
-                                    &state_clone.pool,
-                                    &request_message,
-                                    &user_clone,
-                                )
-                                .await
-                                {
-                                    Ok(k) => {
-                                        for message in k {
-                                            if let Err(e) =
-                                                tx.send(SocketResponse::Message(message))
-                                            {
-                                                eprintln!("Error sending message: {}", e);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Error requesting messages: {}", e);
-                                    }
-                                }
-                            }
-                        }
+                Ok(msg) => {
+                    if let Err(e) = handle_message(msg, &tx, &state_clone, &user_clone).await {
+                        error!("Error handling message: {}", e);
+                        let _ = tx.send(SocketResponse::Error(e.to_string()));
                     }
-                    Message::Binary(_) => {
-                        //TODO
-                    }
-                    Message::Ping(payload) => {
-                        if let Err(e) = tx.send(SocketResponse::Pong(payload)) {
-                            eprintln!("Error sending pong: {}", e);
-                        }
-                    }
-                    Message::Close(_) => {
-                        if let Err(e) = tx.send(SocketResponse::Close) {
-                            eprintln!("Error sending close frame: {}", e);
-                        }
-                        break;
-                    }
-                    _ => (),
-                },
+                }
                 Err(e) => {
-                    eprintln!("Error receiving message: {}", e);
+                    error!("Error receiving message: {}", e);
                     break;
                 }
             }
         }
     });
 
+    // If a task completes, that means that the websocket connection has been closed
     // If either of the tasks completes, we want to abort the other one
     tokio::select! {
         _ = &mut receive_task => send_task.abort(),
         _ = &mut send_task => receive_task.abort()
     };
 
-    // Remove the user from the connection once all the tasks are
-    // complete and all user devices have disconnected
+    // Decrease the number of connections the user has
     state
         .user_connections
         .entry(user.id)
         .and_modify(|entry| *entry -= 1);
     user_connections = *state.user_connections.get(&user.id).unwrap().value();
+    // Remove the user from the connection once all the tasks are
+    // complete and all user devices have disconnected
     if user_connections == 0 {
         state.user_connections.remove(&user.id);
         state.user_sockets.remove(&user.id);
@@ -607,4 +505,108 @@ async fn read_event(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+// Handle incoming websocket messages from the client
+async fn handle_message(
+    msg: Message,
+    tx: &broadcast::Sender<SocketResponse>,
+    state: &AppState,
+    user: &UserToken,
+) -> Result<(), AppError> {
+    match msg {
+        Message::Text(text) => {
+            let msg: WebSocketMessage = serde_json::from_str(&text)?;
+            match msg.message_type {
+                SocketRequest::SendMessage(chat_message) => {
+                    save_message(&state.pool, &chat_message, user).await?;
+                    // Find all the users in the conversation
+                    let users = sqlx::query!(
+                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
+                        chat_message.conversation_id
+                    )
+                    .fetch_all(&state.pool)
+                    .await?;
+                    // Send the message to all the users in the conversation
+                    for user in users {
+                        // Only send the message to users who are connected
+                        if let Some(user) = state.user_sockets.get(&user.user_id) {
+                            if let Err(e) = user.send(SocketResponse::Message(chat_message.clone()))
+                            {
+                                eprintln!("Error sending message: {}", e);
+                            }
+                        }
+                    }
+                }
+                SocketRequest::InviteUser(invite) => {
+                    invite_user(&state.pool, &invite, user).await?;
+                    tx.send(SocketResponse::Invite(invite))?;
+                }
+                SocketRequest::ReadMessage(conversation_id) => {
+                    read_event(&state.pool, conversation_id, user).await?;
+                    tx.send(SocketResponse::ReadEvent(ReadEvent {
+                        conversation_id,
+                        user_id: user.id,
+                        timestamp: chrono::Utc::now().naive_utc(),
+                    }))?;
+                }
+                SocketRequest::RequestMessages(request_message) => {
+                    for message in request_messages(&state.pool, &request_message, user).await? {
+                        if let Err(e) = tx.send(SocketResponse::Message(message)) {
+                            eprintln!("Error sending message: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+        Message::Binary(_) => {
+            //TODO
+        }
+        Message::Ping(payload) => {
+            tx.send(SocketResponse::Pong(payload))?;
+        }
+        Message::Close(_) => {
+            tx.send(SocketResponse::Close)?;
+        }
+        _ => (),
+    }
+    Ok(())
+}
+
+// Send a message to the client over the websocket
+// Option<()> is returned because the connection may have been closed
+// Some(()) is returned if the message was sent successfully
+// None is returned if the connection was closed
+async fn send_message(
+    sender: &mut SplitSink<WebSocket, Message>,
+    msg: SocketResponse,
+) -> Result<Option<()>, AppError> {
+    match msg {
+        SocketResponse::Message(chat_msg) => {
+            sender
+                .send(Message::Text(serde_json::to_string(&chat_msg).unwrap()))
+                .await?;
+        }
+        SocketResponse::Invite(invite) => {
+            sender
+                .send(Message::Text(serde_json::to_string(&invite).unwrap()))
+                .await?;
+        }
+        SocketResponse::ReadEvent(event) => {
+            sender
+                .send(Message::Text(serde_json::to_string(&event).unwrap()))
+                .await?;
+        }
+        SocketResponse::Error(e) => {
+            sender.send(Message::Text(e)).await?;
+        }
+        SocketResponse::Pong(payload) => {
+            sender.send(Message::Pong(payload)).await?;
+        }
+        SocketResponse::Close => {
+            sender.close().await?;
+            return Ok(None);
+        }
+    }
+    Ok(Some(()))
 }

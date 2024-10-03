@@ -8,7 +8,8 @@ use axum::{
         header::{self, AUTHORIZATION},
         HeaderMap, StatusCode,
     },
-    response::{IntoResponse, Response}, Json,
+    response::{IntoResponse, Response},
+    Json,
 };
 use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
@@ -211,7 +212,10 @@ pub async fn authenticate_user(
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
-        .body(Body::from("Successfully authenticated"))?;
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({"message": "Successfully authenticated"}).to_string(),
+        ))?;
     Ok(response)
 }
 
@@ -270,9 +274,9 @@ pub async fn delete_user(
     headers: HeaderMap,
     AppJson(user_data): AppJson<LoginData>,
 ) -> Result<Response, AppError> {
-    let token_user = match authorize_user(&headers){
+    let token_user = match authorize_user(&headers) {
         Ok(k) => k,
-        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response())
+        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
     };
 
     if token_user.username != user_data.username {
