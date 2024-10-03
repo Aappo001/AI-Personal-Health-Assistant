@@ -37,10 +37,7 @@ pub async fn get_user_conversations(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let user = match authorize_user(&headers) {
-        Ok(k) => k,
-        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
-    };
+    let user = authorize_user(&headers)?;
     let res = &sqlx::query_as!(
         Conversation,
         r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
@@ -59,10 +56,7 @@ pub async fn create_conversation(
     headers: HeaderMap,
     AppJson(init_message): AppJson<ChatMessage>,
 ) -> Result<Response, AppError> {
-    let user = match authorize_user(&headers) {
-        Ok(k) => k,
-        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
-    };
+    let user = authorize_user(&headers)?;
     // Limit the title to 32 characters
     let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
 
@@ -112,7 +106,9 @@ pub struct ChatMessage {
     /// The id of the message
     /// If this is None, the message has not been saved to the database yet
     pub id: Option<i64>,
-    pub conversation_id: i64,
+    /// The id of the message
+    /// If this is None, this is the first message in the conversation
+    pub conversation_id: Option<i64>,
     pub message: String,
     pub user_id: i64,
     pub created_at: Option<NaiveDateTime>,
@@ -124,10 +120,7 @@ pub async fn get_conversation(
     headers: HeaderMap,
     Path(conversation_id): Path<i64>,
 ) -> Result<Response, AppError> {
-    let user = match authorize_user(&headers) {
-        Ok(k) => k,
-        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
-    };
+    let user = authorize_user(&headers)?;
     if sqlx::query!(
         r#"SELECT id FROM conversations
             JOIN user_conversations ON user_conversations.conversation_id = conversations.id
@@ -188,10 +181,7 @@ pub async fn connect_conversation(
         Err(e) => return Ok((StatusCode::BAD_REQUEST, e.to_string()).into_response()),
     };
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&auth_token)?);
-    let user = match authorize_user(&headers) {
-        Ok(k) => k,
-        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
-    };
+    let user = authorize_user(&headers)?;
 
     Ok(ws
         .protocols(["fakeProtocol"])

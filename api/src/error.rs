@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use axum::{
-    extract::rejection::{self, JsonRejection},
+    extract::rejection::JsonRejection,
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
@@ -10,7 +10,7 @@ use axum::{
 use axum_macros::FromRequest;
 use log::error;
 use serde::Serialize;
-use validator::{Validate, ValidationError};
+use validator::Validate;
 
 // Make our own error that wraps `anyhow::Error`.
 pub enum AppError {
@@ -18,11 +18,13 @@ pub enum AppError {
     SqlxError(sqlx::Error),
     SerdeError(serde_json::Error),
     ValidationError(Vec<AppValidationError>),
+    AuthError(anyhow::Error),
     Generic(anyhow::Error),
 }
 
 #[derive(Serialize, Debug)]
 pub struct ErrorResponse {
+    r#type: String,
     message: String,
 }
 
@@ -35,7 +37,7 @@ pub struct ErrorResponse {
 pub struct AppJson<T>(pub T);
 
 #[derive(Serialize, Debug)]
-struct AppValidationError {
+pub struct AppValidationError {
     field: String,
     message: String,
 }
@@ -67,16 +69,30 @@ impl<T: Validate> AppValidate for T {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         error!("{}", self);
-        let (status, message) = match self {
+        let (status, message) = match &self {
             AppError::JsonRejection(rejection) => (rejection.status(), rejection.body_text()),
             AppError::ValidationError(e) => (StatusCode::BAD_REQUEST, serde_json::to_string(&e).unwrap()),
             AppError::SerdeError(e) => (StatusCode::BAD_REQUEST, e.to_string()),
+            AppError::AuthError(e) => (StatusCode::UNAUTHORIZED, e.to_string()),
             AppError::SqlxError(_) | AppError::Generic(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal Server Error".to_owned(),
             ),
         };
-        (status, Json(ErrorResponse { message })).into_response()
+        (status, Json(ErrorResponse { r#type: self.r#type(), message })).into_response()
+    }
+}
+
+impl AppError{
+    pub fn r#type(&self) -> String {
+        match self {
+            AppError::JsonRejection(_) => "JsonRejection".to_owned(),
+            AppError::ValidationError(_) => "ValidationError".to_owned(),
+            AppError::SerdeError(_) => "SerdeError".to_owned(),
+            AppError::AuthError(_) => "AuthError".to_owned(),
+            AppError::SqlxError(_) => "SqlxError".to_owned(),
+            AppError::Generic(_) => "Generic".to_owned(),
+        }
     }
 }
 
@@ -86,6 +102,7 @@ impl Display for AppError {
             AppError::JsonRejection(rejection) => write!(f, "JSON rejection: {:?}", rejection),
             AppError::SerdeError(e) => write!(f, "Serde JSON error: {:?}", e),
             AppError::ValidationError(e) => write!(f, "Validation error: {:?}", e),
+            AppError::AuthError(e) => write!(f, "Authorization error: {:?}", e),
             AppError::SqlxError(e) => write!(f, "SQLx error: {:?}", e),
             AppError::Generic(err) => write!(f, "Generic error: {:?}", err),
         }

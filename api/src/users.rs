@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -219,9 +219,9 @@ pub async fn authenticate_user(
     Ok(response)
 }
 
-pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, anyhow::Error> {
+pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
     let Some(token) = headers.get(AUTHORIZATION) else {
-        return Err(anyhow!("No token provided"));
+        return Err(AppError::AuthError(anyhow!("No token provided")));
     };
     let token_data = decode::<UserToken>(
         token
@@ -230,10 +230,10 @@ pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, anyhow::Error> {
             .ok_or_else(|| anyhow!("Invalid token"))?,
         &DecodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
         &Validation::default(),
-    )?;
+    ).map_err(|e| AppError::AuthError(e.into()))?;
 
     if token_data.claims.exp < chrono::Utc::now().timestamp() {
-        return Err(anyhow!("Token expired"));
+        return Err(AppError::AuthError(anyhow!("Token expired")));
     }
 
     Ok(token_data.claims)
@@ -274,13 +274,10 @@ pub async fn delete_user(
     headers: HeaderMap,
     AppJson(user_data): AppJson<LoginData>,
 ) -> Result<Response, AppError> {
-    let token_user = match authorize_user(&headers) {
-        Ok(k) => k,
-        Err(e) => return Ok((StatusCode::UNAUTHORIZED, e.to_string()).into_response()),
-    };
+    let token_user = authorize_user(&headers)?;
 
     if token_user.username != user_data.username {
-        return Ok((StatusCode::UNAUTHORIZED, "Invalid token").into_response());
+        return Err(AppError::AuthError(anyhow!("Token does not match user")));
     }
 
     if sqlx::query!(
