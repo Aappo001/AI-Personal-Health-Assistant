@@ -2,6 +2,7 @@ pub mod chat;
 pub mod cli;
 pub mod users;
 pub mod utils;
+pub mod error;
 use std::{
     fs::{create_dir_all, File},
     path::PathBuf,
@@ -17,6 +18,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use tower_http::trace::TraceLayer;
 
 use chat::{connect_conversation, create_conversation, get_conversation, get_user_conversations};
 use cli::Args;
@@ -71,6 +73,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation))
         .route("/ws", get(connect_conversation))
+        .layer(TraceLayer::new_for_http())
         .with_state(AppState::new(pool.clone()));
     let tcp_listener = TcpListener::bind(format!("0.0.0.0:{}", args.port)).await?;
     info!("Server listening on port {}", args.port);
@@ -90,27 +93,3 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
     Ok(pool)
 }
 
-// Make our own error that wraps `anyhow::Error`.
-pub struct AppError(anyhow::Error);
-
-// Tell axum how to convert `AppError` into a response.
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}", self.0),
-        )
-            .into_response()
-    }
-}
-
-// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, AppError>`. That way you don't need to do that manually.
-impl<E> From<E> for AppError
-where
-    E: Into<anyhow::Error>,
-{
-    fn from(err: E) -> Self {
-        Self(err.into())
-    }
-}

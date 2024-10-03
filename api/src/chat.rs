@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast;
 
+use crate::error::AppError;
 use crate::{
+    error::AppJson,
     users::{authorize_user, UserToken},
-    AppError, AppState,
+    AppState,
 };
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -54,7 +56,7 @@ pub async fn get_user_conversations(
 pub async fn create_conversation(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
-    Json(init_message): Json<ChatMessage>,
+    AppJson(init_message): AppJson<ChatMessage>,
 ) -> Result<Response, AppError> {
     let user = match authorize_user(&headers) {
         Ok(k) => k,
@@ -226,8 +228,8 @@ enum SocketRequest {
     SendMessage(ChatMessage),
     /// Invite a user to the conversation
     InviteUser(InviteData),
-    /// Message has been read
-    ReadMessage,
+    /// Message has been read in given conversation
+    ReadMessage(i64),
     /// Requst the previous messages in the conversation
     /// The i64 is the id of the last message the client received
     RequestMessages(RequestMessage),
@@ -329,8 +331,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                                     save_message(&state_clone.pool, &chat_message, &user_clone)
                                         .await
                                 {
-                                    eprintln!("Error saving message: {}", e.0);
-                                    tx.send(SocketResponse::Error(e.0.to_string()));
+                                    eprintln!("Error saving message: {}", e);
+                                    tx.send(SocketResponse::Error(e.to_string()));
                                 } else {
                                     // Find all the users in the conversation
                                     let Ok(users) = sqlx::query!(
@@ -359,17 +361,20 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                                 if let Err(e) =
                                     invite_user(&state_clone.pool, &invite, &user_clone).await
                                 {
-                                    eprintln!("Error inviting user: {}", e.0);
-                                    tx.send(SocketResponse::Error(e.0.to_string()));
+                                    eprintln!("Error inviting user: {}", e);
+                                    tx.send(SocketResponse::Error(e.to_string()));
                                 } else if let Err(e) = tx.send(SocketResponse::Invite(invite)) {
                                     eprintln!("Error sending invite message: {}", e);
                                     tx.send(SocketResponse::Error(e.to_string()));
                                 }
                             }
-                            SocketRequest::ReadMessage => {
-                                if let Err(e) = read_event(&state_clone.pool, &user_clone).await{
-                                    eprintln!("Error saving read event: {}", e.0);
-                                    tx.send(SocketResponse::Error(e.0.to_string()));
+                            SocketRequest::ReadMessage(conversation_id) => {
+                                if let Err(e) =
+                                    read_event(&state_clone.pool, conversation_id, &user_clone)
+                                        .await
+                                {
+                                    eprintln!("Error saving read event: {}", e);
+                                    tx.send(SocketResponse::Error(e.to_string()));
                                 }
                             }
                             SocketRequest::RequestMessages(request_message) => {
@@ -390,7 +395,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("Error requesting messages: {}", e.0);
+                                        eprintln!("Error requesting messages: {}", e);
                                     }
                                 }
                             }
@@ -587,12 +592,17 @@ async fn invite_user(
 }
 
 /// Mark the conversation as read by the logged in user
-async fn read_event(pool: &SqlitePool, user: &UserToken) -> Result<(), AppError> {
+async fn read_event(
+    pool: &SqlitePool,
+    conversation_id: i64,
+    user: &UserToken,
+) -> Result<(), AppError> {
     let now = chrono::Utc::now();
     sqlx::query!(
-        "UPDATE user_conversations SET last_read_at = ? WHERE user_id = ?",
+        "UPDATE user_conversations SET last_read_at = ? WHERE user_id = ? and conversation_id = ?",
         now,
-        user.id
+        user.id,
+        conversation_id
     )
     .execute(pool)
     .await?;

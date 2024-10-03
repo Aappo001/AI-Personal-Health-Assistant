@@ -8,8 +8,7 @@ use axum::{
         header::{self, AUTHORIZATION},
         HeaderMap, StatusCode,
     },
-    response::{IntoResponse, Response},
-    Json,
+    response::{IntoResponse, Response}, Json,
 };
 use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
-use crate::AppError;
+use crate::error::{AppError, AppJson, AppValidate};
 
 #[derive(Serialize, Deserialize, Validate)]
 pub struct CreateUser {
@@ -79,11 +78,9 @@ impl<T: Validate> PrettyValidate for T {
 
 pub async fn create_user(
     State(pool): State<SqlitePool>,
-    Json(user_data): Json<CreateUser>,
+    AppJson(user_data): AppJson<CreateUser>,
 ) -> Result<Response, AppError> {
-    if let Err(err) = user_data.pretty_validate() {
-        return Ok((StatusCode::BAD_REQUEST, err).into_response());
-    }
+    user_data.app_validate()?;
 
     if let Some(existing_user) = sqlx::query!(
         "SELECT username, email FROM users where username = ? or email = ?",
@@ -182,11 +179,9 @@ pub struct UserToken {
 
 pub async fn authenticate_user(
     State(pool): State<SqlitePool>,
-    Json(user_data): Json<LoginData>,
+    AppJson(user_data): AppJson<LoginData>,
 ) -> Result<Response, AppError> {
-    if let Err(err) = user_data.pretty_validate() {
-        return Ok((StatusCode::BAD_REQUEST, err).into_response());
-    }
+    user_data.app_validate()?;
 
     let Some(existing_user) =
         sqlx::query!("SELECT * FROM users where username = ?", user_data.username)
@@ -273,7 +268,7 @@ pub async fn get_user_profile(
 pub async fn delete_user(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
-    Json(user_data): Json<LoginData>,
+    AppJson(user_data): AppJson<LoginData>,
 ) -> Result<Response, AppError> {
     let token_user = match authorize_user(&headers){
         Ok(k) => k,
