@@ -13,6 +13,7 @@ use axum::{
 };
 use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use password_auth::VerifyError;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
@@ -191,10 +192,15 @@ pub async fn authenticate_user(
     else {
         return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
     };
-    if let Err(_) =
-        password_auth::verify_password(&user_data.password, &existing_user.password_hash)
-    {
-        return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+
+    match password_auth::verify_password(&user_data.password, &existing_user.password_hash){
+        Ok(_) => (),
+        Err(VerifyError::PasswordInvalid) => {
+            return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+        },
+        Err(e) => {
+            return Err(e.into());
+        }
     }
 
     let token_data = UserToken {
@@ -240,6 +246,7 @@ pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublicUser {
     pub id: i64,
     pub username: String,

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast::{self};
 
-use crate::error::AppError;
+use crate::error::{AppError, ErrorResponse};
 use crate::{
     error::AppJson,
     users::{authorize_user, UserToken},
@@ -26,6 +26,7 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize, FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct Conversation {
     pub id: i64,
     pub title: Option<String>,
@@ -58,7 +59,8 @@ pub async fn create_conversation(
 ) -> Result<Response, AppError> {
     let user = authorize_user(&headers)?;
     // Limit the title to 32 characters
-    let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
+    // let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
+    let title = init_message.message.chars().take(32).collect::<String>();
 
     // Begin a transaction to ensure that both the conversation and the initial message are saved
     let mut tx = pool.begin().await?;
@@ -102,6 +104,7 @@ pub async fn create_conversation(
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     /// The id of the message
     /// If this is None, the message has not been saved to the database yet
@@ -189,14 +192,14 @@ pub async fn connect_conversation(
 }
 
 /// The types of responses from the socket
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 pub enum SocketResponse {
     /// Message to be sent to the client
     Message(ChatMessage),
     /// Invite to a conversation
     Invite(InviteData),
     /// Error to inform the client
-    Error(String),
+    Error(ErrorResponse),
     /// Pong to the client
     Pong(Vec<u8>),
     /// Read receipt
@@ -206,6 +209,7 @@ pub enum SocketResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ReadEvent {
     pub conversation_id: i64,
     pub user_id: i64,
@@ -214,6 +218,7 @@ pub struct ReadEvent {
 
 /// Invite data to a conversation
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct InviteData {
     pub conversation_id: Option<i64>,
     pub inviter: i64,
@@ -229,6 +234,8 @@ enum SocketRequest {
     /// Invite a user to the conversation
     InviteUser(InviteData),
     /// Message has been read in given conversation
+    /// Does not provide user_id because the user is already authenticated
+    /// Does not provide timestamp because the server will set it
     ReadMessage(i64),
     /// Requst the previous messages in the conversation
     /// The i64 is the id of the last message the client received
@@ -236,6 +243,7 @@ enum SocketRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RequestMessage {
     /// The id of the last message the client received from the conversation
     /// If this is None, the client has not received any messages yet
@@ -247,6 +255,7 @@ struct RequestMessage {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WebSocketMessage {
     #[serde(flatten)]
     message_type: SocketRequest,
@@ -300,7 +309,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                 Ok(msg) => {
                     if let Err(e) = handle_message(msg, &tx, &state_clone, &user_clone).await {
                         error!("Error handling message: {}", e);
-                        let _ = tx.send(SocketResponse::Error(e.to_string()));
+                        let _ = tx.send(SocketResponse::Error(e.into()));
                     }
                 }
                 Err(e) => {
@@ -588,7 +597,7 @@ async fn send_message(
                 .await?;
         }
         SocketResponse::Error(e) => {
-            sender.send(Message::Text(e)).await?;
+            sender.send(Message::Text(serde_json::to_string(&e).unwrap())).await?;
         }
         SocketResponse::Pong(payload) => {
             sender.send(Message::Pong(payload)).await?;

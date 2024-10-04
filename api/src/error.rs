@@ -22,11 +22,20 @@ pub enum AppError {
     Generic(anyhow::Error),
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct ErrorResponse {
     r#type: String,
     message: String,
 }
+
+impl From<AppError> for ErrorResponse{
+    fn from(value: AppError) -> Self {
+        ErrorResponse {
+            r#type: value.r#type(),
+            message: value.to_string(),
+        }
+    }
+} 
 
 // Create our own JSON extractor by wrapping `axum::Json`. This makes it easy to override the
 // rejection and provide our own which formats errors to match our application.
@@ -99,12 +108,12 @@ impl AppError{
 impl Display for AppError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            AppError::JsonRejection(rejection) => write!(f, "JSON rejection: {:?}", rejection),
-            AppError::SerdeError(e) => write!(f, "Serde JSON error: {:?}", e),
-            AppError::ValidationError(e) => write!(f, "Validation error: {:?}", e),
-            AppError::AuthError(e) => write!(f, "Authorization error: {:?}", e),
-            AppError::SqlxError(e) => write!(f, "SQLx error: {:?}", e),
-            AppError::Generic(err) => write!(f, "Generic error: {:?}", err),
+            AppError::JsonRejection(rejection) => write!(f, "{}", rejection.body_text()),
+            AppError::SerdeError(e) => write!(f, "{}", e),
+            AppError::ValidationError(e) => write!(f, "{}", serde_json::to_string(&e).unwrap()),
+            AppError::AuthError(e) => write!(f, "{}", e),
+            AppError::SqlxError(e) => write!(f, "{}", e),
+            AppError::Generic(err) => write!(f, "{}", err),
         }
     }
 }

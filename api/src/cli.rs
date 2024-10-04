@@ -10,8 +10,7 @@ pub struct Args {
     /// Will default to DATABASE_URL variable inside .env file if a .env file is found in the current project directory, otherwise `dirs::data_dir` if not provided
     #[arg(short, long, default_value_t = var("DATABASE_URL").unwrap_or(default_db_url()))]
     pub db_url: String,
-    /// The URL of the database to connect to
-    /// Will default to `dirs::data_dir` if not provided
+    /// The port to listen on for connections
     #[arg(short, long, default_value_t = 3000)]
     pub port: u16,
 }
