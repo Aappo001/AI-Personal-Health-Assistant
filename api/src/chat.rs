@@ -82,7 +82,8 @@ pub async fn create_conversation(
     .await?;
     // Send the initial message
     sqlx::query!(
-        "INSERT INTO messages (conversation_id, message) VALUES (?, ?)",
+        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?)",
+        user.id,
         conversation_id,
         init_message.message
     )
@@ -228,6 +229,7 @@ pub struct InviteData {
 
 /// The types of requests that can be made to the websocket
 #[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
 enum SocketRequest {
     /// Send a message to the conversation
     SendMessage(ChatMessage),
@@ -252,13 +254,6 @@ struct RequestMessage {
     /// The maximum number of messages to request
     /// If this is None, the client is requesting 50 messages
     message_num: Option<i64>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WebSocketMessage {
-    #[serde(flatten)]
-    message_type: SocketRequest,
 }
 
 // TODO: Implement querying AI model for responses
@@ -381,7 +376,7 @@ async fn save_message(
     pool: &SqlitePool,
     message: &ChatMessage,
     user: &UserToken,
-) -> Result<(), AppError> {
+) -> Result<ChatMessage, AppError> {
     if user.id != message.user_id {
         return Err(anyhow!("User does not have permission to send message").into());
     }
@@ -396,14 +391,15 @@ async fn save_message(
     {
         return Err(anyhow!("User is not in the conversation").into());
     }
-    sqlx::query!(
-        "INSERT INTO messages (conversation_id, message) VALUES (?, ?)",
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?) RETURNING *",
+        user.id,
         message.conversation_id,
         message.message
     )
-    .execute(pool)
-    .await?;
-    Ok(())
+    .fetch_one(pool)
+    .await?)
 }
 
 /// Invite multiple users to a conversation
@@ -515,10 +511,10 @@ async fn handle_message(
 ) -> Result<(), AppError> {
     match msg {
         Message::Text(text) => {
-            let msg: WebSocketMessage = serde_json::from_str(&text)?;
-            match msg.message_type {
+            let msg: SocketRequest = serde_json::from_str(&text)?;
+            match msg {
                 SocketRequest::SendMessage(chat_message) => {
-                    save_message(&state.pool, &chat_message, user).await?;
+                    let chat_message = save_message(&state.pool, &chat_message, user).await?;
                     // Find all the users in the conversation
                     let users = sqlx::query!(
                         "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
@@ -597,7 +593,9 @@ async fn send_message(
                 .await?;
         }
         SocketResponse::Error(e) => {
-            sender.send(Message::Text(serde_json::to_string(&e).unwrap())).await?;
+            sender
+                .send(Message::Text(serde_json::to_string(&e).unwrap()))
+                .await?;
         }
         SocketResponse::Pong(payload) => {
             sender.send(Message::Pong(payload)).await?;
