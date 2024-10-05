@@ -12,7 +12,9 @@ use log::error;
 use serde::Serialize;
 use validator::Validate;
 
-// Make our own error that wraps `anyhow::Error`.
+/// Own error that wraps `anyhow::Error`.
+/// Useful to provide more fine grained error handling in our application.
+/// Helps us debug errors in the code easier and gives the client a better idea of what went wrong.
 pub enum AppError {
     JsonRejection(JsonRejection),
     SqlxError(sqlx::Error),
@@ -22,6 +24,8 @@ pub enum AppError {
     Generic(anyhow::Error),
 }
 
+/// A JSON response for errors that includes the error type and message
+/// Used in both WebSockets and HTTP responses to notify the client of errors
 #[derive(Serialize, Debug, Clone)]
 pub struct ErrorResponse {
     r#type: String,
@@ -41,23 +45,32 @@ impl From<AppError> for ErrorResponse{
 // rejection and provide our own which formats errors to match our application.
 //
 // `axum::Json` responds with plain text if the input is invalid.
+/// A wrapper around `axum::Json` that provides a custom rejection to return JSON errors
+/// and allows us to intercept errors and provide a more detailed error message
 #[derive(FromRequest)]
 #[from_request(via(axum::Json), rejection(AppError))]
 pub struct AppJson<T>(pub T);
 
+/// A more descriptive error message for validation errors
 #[derive(Serialize, Debug)]
 pub struct AppValidationError {
     field: String,
     message: String,
 }
 
+/// An error type for validation errors
+/// This is useful because we can return a JSON response with the error type and message
+/// to provide the client with a clearer error message than what the default `validator`
+/// crate provides.
 pub trait AppValidate {
     fn app_validate(&self) -> Result<(), AppError>;
 }
 
 impl<T: Validate> AppValidate for T {
     fn app_validate(&self) -> Result<(), AppError> {
+        // If validation fails, return a JSON response with the error type and message
         if let Err(err) = self.validate() {
+            // Iterater over the field errors and map them to `AppValidationError`
             let errors: Vec<AppValidationError> = err
                 .field_errors()
                 .iter()
@@ -74,7 +87,7 @@ impl<T: Validate> AppValidate for T {
     }
 }
 
-// Tell axum how to convert `AppError` into a response.
+/// Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         error!("{}", self);
@@ -88,11 +101,13 @@ impl IntoResponse for AppError {
                 "Internal Server Error".to_owned(),
             ),
         };
+        // Return a JSON response with the error type and message.
         (status, Json(ErrorResponse { r#type: self.r#type(), message })).into_response()
     }
 }
 
 impl AppError{
+    /// Get the error type as a string to notify the client of what went wrong
     pub fn r#type(&self) -> String {
         match self {
             AppError::JsonRejection(_) => "JsonRejection".to_owned(),
@@ -105,6 +120,7 @@ impl AppError{
     }
 }
 
+// Implement `Display` for `AppError` to allow us to format the error as a string.
 impl Display for AppError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -118,12 +134,19 @@ impl Display for AppError {
     }
 }
 
+// Implement `From` for `AppError` to implicitly convert from `anyhow::Error`
+// This lets us use `?` without having to wrap every error in `AppError` because the compiler will
+// authomatically convert it for us.
 impl<E> From<E> for AppError
 where
     E: Into<anyhow::Error>,
 {
     fn from(err: E) -> Self {
         let err: anyhow::Error = err.into();
+        // Use downcast_ref to check the underlying error type and return the appropriate variant
+        // we can't use downcast to check because it consumes the error and does not implement `Clone`
+        // We don't need to add `AuthError` or `ValidationError` because we will handle those
+        // explicitly in our application.
         if err.downcast_ref::<JsonRejection>().is_some() {
             return Self::JsonRejection(err.downcast().unwrap());
         } else if err.downcast_ref::<sqlx::Error>().is_some() {

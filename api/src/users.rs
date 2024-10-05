@@ -20,6 +20,7 @@ use validator::{Validate, ValidationError, ValidationErrorsKind};
 
 use crate::error::{AppError, AppJson, AppValidate};
 
+/// The data required to create a new user
 #[derive(Serialize, Deserialize, Validate)]
 pub struct CreateUser {
     #[validate(email(code = "Invalid email address"))]
@@ -140,7 +141,8 @@ pub fn check_username(username: &str) -> Result<(), ValidationError> {
     }
 }
 
-pub fn check_password(password: &str) -> Result<(), ValidationError> {
+/// Verify that the password only contains ASCII characters
+fn check_password(password: &str) -> Result<(), ValidationError> {
     if !password.chars().all(|c| c.is_ascii()) {
         Err(ValidationError::new(
             r#"must only contain alphanumeric characters and ASCII symbols"#,
@@ -150,6 +152,7 @@ pub fn check_password(password: &str) -> Result<(), ValidationError> {
     }
 }
 
+/// The data required to authenticate a user
 #[derive(Serialize, Deserialize, Validate)]
 pub struct LoginData {
     #[validate(
@@ -172,6 +175,7 @@ pub struct LoginData {
     pub password: String,
 }
 
+/// The data stored in the JWT token
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserToken {
     pub id: i64,
@@ -245,6 +249,8 @@ pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
     Ok(token_data.claims)
 }
 
+/// Public user data that can be shared with other users
+/// Does not include sensitive information such as email or password
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicUser {

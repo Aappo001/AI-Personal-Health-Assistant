@@ -1,10 +1,10 @@
-use std::cmp;
+use std::{cmp, net::SocketAddr};
 
 use anyhow::anyhow;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, State,
+        ConnectInfo, Path, State,
     },
     http::{header::AUTHORIZATION, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -13,7 +13,7 @@ use axum::{
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
-use log::error;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast::{self};
@@ -25,15 +25,21 @@ use crate::{
     AppState,
 };
 
-#[derive(Serialize, Deserialize, FromRow)]
+/// A conversation between at least one user and an AI
+#[derive(Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Conversation {
+    /// The id of the conversation
     pub id: i64,
+    /// The title of the conversation
+    /// If this is None, the frontend should fallback to listing the
+    /// usernames of the users in the conversation
     pub title: Option<String>,
     pub created_at: NaiveDateTime,
     pub last_message_at: NaiveDateTime,
 }
 
+/// Get all the conversations the user is in
 pub async fn get_user_conversations(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
@@ -52,6 +58,7 @@ pub async fn get_user_conversations(
     Ok((StatusCode::OK, Json(res)).into_response())
 }
 
+/// Create a conversation between the user and the AI from an initial message
 pub async fn create_conversation(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
@@ -104,6 +111,7 @@ pub async fn create_conversation(
     Ok((StatusCode::OK, Json(res)).into_response())
 }
 
+/// A message in a conversation
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
@@ -112,6 +120,7 @@ pub struct ChatMessage {
     pub id: Option<i64>,
     /// The id of the message
     /// If this is None, this is the first message in the conversation
+    /// and a new conversation should be created
     pub conversation_id: Option<i64>,
     pub message: String,
     pub user_id: i64,
@@ -119,6 +128,7 @@ pub struct ChatMessage {
     pub modified_at: Option<NaiveDateTime>,
 }
 
+/// Get all the messages in a conversation
 pub async fn get_conversation(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
@@ -157,10 +167,15 @@ pub async fn get_conversation(
 // btoa("Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJDeWFuIiwiZXhwIjoxNzI3NDA2MDQ1fQ.lxlii16WpcD0gdkIOWcTCzPSmnlS0Dmp5uFVqY-VxoQ")
 // .replace(/=/g, '')
 // ]);
+/// Initializer for a websocket connection
+/// Doesn't actually do anything with the connection other than authorization
+/// Passes on the connection to the `conversations_socket` function where the actual
+/// logic for the websocket is implemented
 pub async fn connect_conversation(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     mut headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> Result<Response, AppError> {
     // Doing this header shinanigans because websockets are doodoo
     // #5 on https://stackoverflow.com/a/77060459 explains what's going on here
@@ -187,6 +202,7 @@ pub async fn connect_conversation(
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&auth_token)?);
     let user = authorize_user(&headers)?;
 
+    info!("Received websocket connection from {}", addr);
     Ok(ws
         .protocols(["fakeProtocol"])
         .on_upgrade(|socket| conversations_socket(socket, state, user)))
@@ -203,17 +219,25 @@ pub enum SocketResponse {
     Error(ErrorResponse),
     /// Pong to the client
     Pong(Vec<u8>),
-    /// Read receipt
+    /// Read event to inform the client that messages before a given timestamp 
+    /// in a conversation were read by a user
     ReadEvent(ReadEvent),
     /// Close the connection
     Close,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+/// A read receipt for a conversation
+/// Every message sent before this message is assumed to have been read by the user
+/// Sent to the client, but not received from the client so they can't lie about timestamps and 
+/// do weird shinanigans like reading messages in the future
+#[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadEvent {
+    /// The id of the conversation that was read
     pub conversation_id: i64,
+    /// The id of the user who read the conversation
     pub user_id: i64,
+    /// The timestamp when the conversation was last read
     pub timestamp: NaiveDateTime,
 }
 
@@ -222,8 +246,12 @@ pub struct ReadEvent {
 #[serde(rename_all = "camelCase")]
 pub struct InviteData {
     pub conversation_id: Option<i64>,
+    /// The user who is inviting the other users
     pub inviter: i64,
+    /// The users being invited to the conversation
     pub invitees: Vec<i64>,
+    /// The timestamp when users were invited to the conversation
+    /// This should not be sent by the client, it will be set by the server
     pub invited_at: Option<NaiveDateTime>,
 }
 
@@ -256,10 +284,13 @@ struct RequestMessage {
     message_num: Option<i64>,
 }
 
+/// Handles incoming websocket connections
 // TODO: Implement querying AI model for responses
 // TODO: Refactor this function so the receive and send tasks are separate functions
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
+
+    // Increase the number of connections the user has
     let mut user_connections = *state
         .user_connections
         .entry(user.id)
@@ -267,6 +298,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         .or_insert(1)
         .value();
 
+    // This is the first connection the user has, so create a broadcast channel to start sending
     if user_connections == 1 {
         let (tx, _) = broadcast::channel(10);
         state.user_sockets.insert(user.id, tx);
@@ -282,6 +314,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
     let mut send_task = tokio::spawn(async move {
+        // Keep checking for incoming messages and sending messages to the client accordingly
+        // until the connection is closed
         while let Ok(msg) = rx.recv().await {
             match send_message(&mut sender, msg).await {
                 // The message was sent successfully to the client, continue
@@ -299,6 +333,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 
     // Handle incoming messages from the client over the websocket
     let mut receive_task = tokio::spawn(async move {
+        // Keep receiving messages until the connection is closed
         while let Some(msg) = receiver.next().await {
             match msg {
                 Ok(msg) => {
@@ -336,6 +371,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     }
 }
 
+/// Requests the most recent messages sent in a conversation before the given message id
+/// A given id of None will return the most recent messages
 async fn request_messages(
     pool: &SqlitePool,
     request: &RequestMessage,
@@ -502,7 +539,9 @@ async fn read_event(
     Ok(())
 }
 
-// Handle incoming websocket messages from the client
+/// Handle incoming websocket messages from the client
+/// This function will parse the message and send the appropriate response based on the enum
+/// variant
 async fn handle_message(
     msg: Message,
     tx: &broadcast::Sender<SocketResponse>,
@@ -568,14 +607,16 @@ async fn handle_message(
     Ok(())
 }
 
-// Send a message to the client over the websocket
-// Option<()> is returned because the connection may have been closed
-// Some(()) is returned if the message was sent successfully
-// None is returned if the connection was closed
+/// Send a message to the client over the websocket
+/// Option<()> is returned because the connection may have been closed
+/// Some(()) is returned if the message was sent successfully
+/// None is returned if the connection was closed
 async fn send_message(
     sender: &mut SplitSink<WebSocket, Message>,
     msg: SocketResponse,
 ) -> Result<Option<()>, AppError> {
+    // *SAFETY* The `serde_json::to_string` function can safely be unwrapped because the `SocketResponse` enum
+    // is serializable and will not panic
     match msg {
         SocketResponse::Message(chat_msg) => {
             sender

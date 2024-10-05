@@ -1,13 +1,17 @@
+/// Contains the logic for the chat side of the application. Including the routes for creating a
+/// conversation, getting a conversation, and connecting to a websocket for chatting.
 pub mod chat;
+/// Contains the logic for the command line interface (CLI) of the application.
 pub mod cli;
+/// Contains the logic for the users side of the application. Including the routes for creating a
+/// user, authenticating a user, and getting a user's profile.
 pub mod users;
+/// Contains utility functions that are used throughout the application.
 pub mod utils;
+/// Contains the error type and error handling logic for the application.
 pub mod error;
 use std::{
-    fs::{create_dir_all, File},
-    path::PathBuf,
-    str::FromStr,
-    sync::Arc,
+    fs::{create_dir_all, File}, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc
 };
 
 use anyhow::Result;
@@ -16,7 +20,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Router,
+    Router, ServiceExt,
 };
 use tower_http::trace::TraceLayer;
 
@@ -28,21 +32,29 @@ use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
 
+/// The name of the package. This is defined in the `Cargo.toml` file.
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
+
+/// The protocol for connecting to a SQLite database.
 #[cfg(windows)]
 pub const PROTOCOL: &str = "sqlite:///";
 
+/// The protocol for connecting to a SQLite database.
 #[cfg(unix)]
 pub const PROTOCOL: &str = "sqlite://";
 
+/// The application state that is shared across all routes.
 #[derive(Clone)]
 pub struct AppState {
-    // This is a channel that we can use to send messages to all connected clients on the same
-    // conversation.
+    /// This is a channel that we can use to send messages to all connected clients on the same
+    /// conversation.
     user_sockets: Arc<DashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
+    /// This is a map that keeps track of how many connections each user has. We use this to
+    /// determine when we should remove the user from the `user_sockets` map.
     user_connections: Arc<DashMap<i64, usize>>,
-    // Connection pool to the database.
+    /// Connection pool to the database. We use a pool to handle multiple requests concurrently
+    /// without having to create a new connection for each request.
     pool: SqlitePool,
 }
 
@@ -63,6 +75,7 @@ impl FromRef<AppState> for SqlitePool {
     }
 }
 
+/// Start the server and listen for incoming connections.
 pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
     let app = Router::new()
         .route("/users/create", post(create_user))
@@ -73,14 +86,19 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation))
         .route("/ws", get(connect_conversation))
+        // Add the trace layer to log all incoming requests
+        // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
         .with_state(AppState::new(pool.clone()));
+
     let tcp_listener = TcpListener::bind(format!("0.0.0.0:{}", args.port)).await?;
     info!("Server listening on port {}", args.port);
-    axum::serve(tcp_listener, app).await?;
+    axum::serve(tcp_listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 
+/// Initialize the database by creating the database file and running the migrations.
+/// Returns a connection pool to the database.
 pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
     if let Ok(path) = PathBuf::from_str(db_url.strip_prefix(PROTOCOL).unwrap_or(db_url)) {
         if !path.is_file() {

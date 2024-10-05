@@ -3,6 +3,7 @@ use clap::Parser;
 use crate::utils::data_dir;
 use dotenv::{dotenv, var};
 
+/// The backend API for the chat application
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -17,11 +18,13 @@ pub struct Args {
 
 /// We know that windows paths use `\` instead of `/` as file separators and file names cannot contain `\` inside them.
 /// Therefore, every `\` we encounter is a file separator and can safely be replaced with `/`.
+/// This function returns the default database URL based on the operating system
 #[cfg(windows)]
 fn default_db_url() -> String {
     format!("sqlite:///{}", data_dir().join("api.db").display().to_string().replace("\\", "/"))
 }
 
+/// This function returns the default database URL based on the operating system
 #[cfg(unix)]
 fn default_db_url() -> String {
     format!("sqlite://{}", data_dir().join("api.db").display())
