@@ -22,7 +22,7 @@ use axum::{
     routing::{delete, get, post},
     Router, ServiceExt,
 };
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 
 use chat::{connect_conversation, create_conversation, get_conversation, get_user_conversations};
 use cli::Args;
@@ -86,6 +86,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation))
         .route("/ws", get(connect_conversation))
+        .nest_service("/pages", ServeDir::new("../server"))
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
