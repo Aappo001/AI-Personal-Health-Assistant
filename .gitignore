@@ -1,2 +1,4 @@
 /api/target
 /api/.env
+/api/api.db
+/server/node_modules

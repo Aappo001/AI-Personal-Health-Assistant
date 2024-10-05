@@ -15,6 +15,7 @@ use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use password_auth::VerifyError;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::SqlitePool;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
@@ -22,6 +23,7 @@ use crate::error::{AppError, AppJson, AppValidate};
 
 /// The data required to create a new user
 #[derive(Serialize, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateUser {
     #[validate(email(code = "Invalid email address"))]
     pub email: String,
@@ -110,7 +112,11 @@ pub async fn create_user(
         user_data.last_name
     ).execute(&pool).await?;
 
-    Ok((StatusCode::CREATED, "User created").into_response())
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "message": "User created"})),
+    )
+        .into_response())
 }
 
 pub fn check_username(username: &str) -> Result<(), ValidationError> {
@@ -197,11 +203,11 @@ pub async fn authenticate_user(
         return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
     };
 
-    match password_auth::verify_password(&user_data.password, &existing_user.password_hash){
+    match password_auth::verify_password(&user_data.password, &existing_user.password_hash) {
         Ok(_) => (),
         Err(VerifyError::PasswordInvalid) => {
             return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
-        },
+        }
         Err(e) => {
             return Err(e.into());
         }
@@ -240,7 +246,8 @@ pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
             .ok_or_else(|| anyhow!("Invalid token"))?,
         &DecodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
         &Validation::default(),
-    ).map_err(|e| AppError::AuthError(e.into()))?;
+    )
+    .map_err(|e| AppError::AuthError(e.into()))?;
 
     if token_data.claims.exp < chrono::Utc::now().timestamp() {
         return Err(AppError::AuthError(anyhow!("Token expired")));
