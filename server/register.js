@@ -34,7 +34,6 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         try {
-            // Send a request to register the user
             const response = await fetch('http://localhost:3000/register', {
                 method: 'POST',
                 headers: {
@@ -55,8 +54,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         } catch (error) {
             console.error('Error:', error);
-            messageDiv.textContent = 'An error occurred. Please try again.'; 
-            messageDiv.style.color = 'red'; 
         }
     });
 
