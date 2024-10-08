@@ -77,17 +77,19 @@ impl FromRef<AppState> for SqlitePool {
 
 /// Start the server and listen for incoming connections.
 pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
-    let app = Router::new()
-        .route("/users/create", post(create_user))
-        .route("/users/auth", post(authenticate_user))
+    let api = Router::new()
+        .route("/register", post(create_user))
+        .route("/login", post(authenticate_user))
         .route("/users/profile/:id", get(get_user_profile))
         .route("/users/delete", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
-        .route("/ws", get(connect_conversation))
-        .route("/register", post(create_user)) 
-        .nest_service("/pages", ServeDir::new("../server"))
+        .route("/ws", get(connect_conversation));
+
+    let app = Router::new()
+        .nest("/api", api)
+        .nest_service("/", ServeDir::new("../server"))
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())

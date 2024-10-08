@@ -41,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const payload = { username, password };
 
         try {
-            const response = await fetch('http://localhost:3000/login', { 
+            const response = await fetch('http://localhost:3000/api/login', { 
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -56,7 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await response.json();
 
             // Save important info locally (JWT and user settings)
-            localStorage.setItem('jwt', data.token); 
+            localStorage.setItem('jwt', response.headers.authorization); 
             localStorage.setItem('userSettings', JSON.stringify(data.userSettings)); 
 
             alert('Login successful!'); 
