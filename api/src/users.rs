@@ -114,7 +114,7 @@ pub async fn create_user(
 
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "message": "User created"})),
+        Json(json!({ "message": "User created" })),
     )
         .into_response())
 }
@@ -149,7 +149,7 @@ pub fn check_username(username: &str) -> Result<(), ValidationError> {
 
 /// Verify that the password only contains ASCII characters
 fn check_password(password: &str) -> Result<(), ValidationError> {
-    if !password.chars().all(|c| c.is_ascii()) {
+    if !password.is_ascii() {
         Err(ValidationError::new(
             r#"must only contain alphanumeric characters and ASCII symbols"#,
         ))

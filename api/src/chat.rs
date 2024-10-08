@@ -59,7 +59,8 @@ pub async fn get_user_conversations(
 }
 
 /// Create a conversation between the user and the AI from an initial message
-pub async fn create_conversation(
+/// Initiated from a POST request
+pub async fn create_conversation_rest(
     State(pool): State<SqlitePool>,
     headers: HeaderMap,
     AppJson(init_message): AppJson<ChatMessage>,
@@ -67,6 +68,20 @@ pub async fn create_conversation(
     let user = authorize_user(&headers)?;
     // Limit the title to 32 characters
     // let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
+    Ok((
+        StatusCode::OK,
+        Json(create_conversation(&pool, &init_message, &user).await?),
+    )
+        .into_response())
+}
+
+// This is used in both the REST api and the websocket api so it is extracted into a function
+/// Create a conversation between the user and the AI from an initial message
+async fn create_conversation(
+    pool: &SqlitePool,
+    init_message: &ChatMessage,
+    user: &UserToken,
+) -> Result<Conversation, AppError> {
     let title = init_message.message.chars().take(32).collect::<String>();
 
     // Begin a transaction to ensure that both the conversation and the initial message are saved
@@ -101,14 +116,13 @@ pub async fn create_conversation(
     tx.commit().await?;
 
     // Return the new conversation for future messages
-    let res = sqlx::query_as!(
-            Conversation,
-            "SELECT id, title, created_at, last_message_at FROM conversations where id = ? ORDER BY last_message_at DESC",
-            conversation_id,
-        )
-        .fetch_one(&pool)
-        .await?;
-    Ok((StatusCode::OK, Json(res)).into_response())
+    Ok(sqlx::query_as!(
+        Conversation,
+        "SELECT id, title, created_at, last_message_at FROM conversations where id = ? ORDER BY last_message_at DESC",
+        conversation_id,
+    )
+        .fetch_one(pool)
+    .await?)
 }
 
 /// A message in a conversation
@@ -219,7 +233,7 @@ pub enum SocketResponse {
     Error(ErrorResponse),
     /// Pong to the client
     Pong(Vec<u8>),
-    /// Read event to inform the client that messages before a given timestamp 
+    /// Read event to inform the client that messages before a given timestamp
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
     /// Close the connection
@@ -228,7 +242,7 @@ pub enum SocketResponse {
 
 /// A read receipt for a conversation
 /// Every message sent before this message is assumed to have been read by the user
-/// Sent to the client, but not received from the client so they can't lie about timestamps and 
+/// Sent to the client, but not received from the client so they can't lie about timestamps and
 /// do weird shinanigans like reading messages in the future
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -416,6 +430,9 @@ async fn save_message(
 ) -> Result<ChatMessage, AppError> {
     if user.id != message.user_id {
         return Err(anyhow!("User does not have permission to send message").into());
+    }
+    if message.conversation_id.is_none() {
+        create_conversation(pool, message, user).await?;
     }
     if sqlx::query!(
         "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
