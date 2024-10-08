@@ -24,7 +24,7 @@ use axum::{
 };
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use chat::{connect_conversation, create_conversation, get_conversation, get_user_conversations};
+use chat::{connect_conversation, create_conversation_rest, get_conversation, get_user_conversations};
 use cli::Args;
 use dashmap::DashMap;
 use log::info;
@@ -84,7 +84,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/users/delete", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
-        .route("/chat/create", post(create_conversation))
+        .route("/chat/create", post(create_conversation_rest))
         .route("/ws", get(connect_conversation))
         .route("/register", post(create_user)) 
         .nest_service("/pages", ServeDir::new("../server"))
