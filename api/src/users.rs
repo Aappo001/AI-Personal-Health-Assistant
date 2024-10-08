@@ -214,8 +214,8 @@ pub async fn authenticate_user(
     }
 
     let token_data = UserToken {
-        id: existing_user.id.unwrap(),
-        username: existing_user.username,
+        id: existing_user.id,
+        username: existing_user.username.clone(),
         exp: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
     };
 
@@ -224,13 +224,20 @@ pub async fn authenticate_user(
         &token_data,
         &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
     )?;
+    
+    let user = PublicUser {
+        id: existing_user.id,
+        username: existing_user.username,
+        first_name: existing_user.first_name,
+        last_name: existing_user.last_name,
+    };
 
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::AUTHORIZATION, format!("Bearer {}", token))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(
-            serde_json::json!({"message": "Successfully authenticated"}).to_string(),
+            serde_json::json!({"message": "Successfully authenticated", "user": serde_json::to_string(&user).unwrap() }).to_string(),
         ))?;
     Ok(response)
 }
