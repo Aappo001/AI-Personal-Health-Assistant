@@ -1,12 +1,21 @@
-import { useState } from "react";
+import { Link } from "react-router-dom";
 import "./App.css";
 
 function App() {
   return (
     <>
-      <h1 className=" text-red-500 bg-blue-600 p-4">
-        Tailwind test PLEASE WORK
-      </h1>
+      <Link
+        to="/register"
+        className="px-4 py-2 border-[1px] border-black m-2 rounded-sm"
+      >
+        Register
+      </Link>
+      <Link
+        to="/login"
+        className="px-4 py-2 border-[1px] border-black m-2 rounded-sm"
+      >
+        Login
+      </Link>
     </>
   );
 }
