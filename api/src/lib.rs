@@ -86,6 +86,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation))
         .route("/ws", get(connect_conversation))
+        .route("/register", post(create_user)) 
         .nest_service("/pages", ServeDir::new("../server"))
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time

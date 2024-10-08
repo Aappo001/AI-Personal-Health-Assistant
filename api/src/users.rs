@@ -119,55 +119,6 @@ pub async fn create_user(
         .into_response())
 }
 
-
-#[derive(Deserialize, Debug)]
-pub struct RegisterRequest {
-    pub username: String,
-    pub email: String,
-    pub password_hash: String,
-    pub first_name: String,
-    pub last_name: Option<String>, // This is optional
-}
-
-#[derive(Serialize)]
-pub struct RegisterResponse {
-    pub success: bool,
-    pub message: String,
-}
-
-// Route handler for user registration
-pub async fn register_user(
-    State(pool): State<SqlitePool>,
-    Json(payload): Json<RegisterRequest>,
-) -> Result<Json<RegisterResponse>, StatusCode> {
-    // Insert user data into the database
-    let result = sqlx::query!(
-        r#"
-        INSERT INTO users (username, email, password_hash, first_name, last_name)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-        "#,
-        payload.username,
-        payload.email,
-        payload.password_hash,    // In production, hash the password before storing!
-        payload.first_name,
-        payload.last_name
-    )
-    .execute(&pool)
-    .await;
-
-    match result {
-        Ok(_) => Ok(Json(RegisterResponse {
-            success: true,
-            message: "User registered successfully".to_string(),
-        })),
-        Err(e) => {
-            eprintln!("Failed to insert user: {:?}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
-}
-
-
 pub fn check_username(username: &str) -> Result<(), ValidationError> {
     match username
         .chars()
