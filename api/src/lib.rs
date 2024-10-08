@@ -3,15 +3,19 @@
 pub mod chat;
 /// Contains the logic for the command line interface (CLI) of the application.
 pub mod cli;
+/// Contains the error type and error handling logic for the application.
+pub mod error;
 /// Contains the logic for the users side of the application. Including the routes for creating a
 /// user, authenticating a user, and getting a user's profile.
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
-/// Contains the error type and error handling logic for the application.
-pub mod error;
 use std::{
-    fs::{create_dir_all, File}, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc
+    fs::{create_dir_all, File},
+    net::SocketAddr,
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::Result;
@@ -24,7 +28,9 @@ use axum::{
 };
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use chat::{connect_conversation, create_conversation_rest, get_conversation, get_user_conversations};
+use chat::{
+    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
+};
 use cli::Args;
 use dashmap::DashMap;
 use log::info;
@@ -34,7 +40,6 @@ use users::{authenticate_user, create_user, delete_user, get_user_profile};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
-
 
 /// The protocol for connecting to a SQLite database.
 #[cfg(windows)]
@@ -89,7 +94,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 
     let app = Router::new()
         .nest("/api", api)
-        .nest_service("/", ServeDir::new("../server"))
+        .nest_service("/", ServeDir::new("../client/dist"))
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
@@ -97,7 +102,11 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 
     let tcp_listener = TcpListener::bind(format!("0.0.0.0:{}", args.port)).await?;
     info!("Server listening on port {}", args.port);
-    axum::serve(tcp_listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(
+        tcp_listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -114,4 +123,3 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
 }
-
