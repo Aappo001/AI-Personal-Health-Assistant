@@ -1,15 +1,19 @@
 import { useState } from "react";
+import { LoginBody } from "../types";
 
 export default function Login() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [login, setLogin] = useState<LoginBody>({
+    username: "",
+    password: "",
+  });
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
     event.preventDefault();
+    console.log(`Attempted login: ${JSON.stringify(login)}`);
 
-    if (!username || !password) {
+    if (!login.username || !login.password) {
       setResponseMessage("Please fill in all fields.");
       setError(true);
       return;
@@ -21,7 +25,7 @@ export default function Login() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(login),
       });
 
       const result = await response.json();
@@ -45,16 +49,16 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="flex flex-col w-72 m-5">
           <input
             type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={login.username}
+            onChange={(e) => setLogin({ ...login, username: e.target.value })}
             placeholder="Username"
             required
             className="p-2 mb-2 border border-gray-300 rounded"
           />
           <input
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={login.password}
+            onChange={(e) => setLogin({ ...login, password: e.target.value })}
             placeholder="Password"
             required
             className="p-2 mb-2 border border-gray-300 rounded"
