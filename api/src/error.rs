@@ -8,8 +8,8 @@ use axum::{
     Json,
 };
 use axum_macros::FromRequest;
-use log::error;
 use serde::Serialize;
+use tracing::{error, warn};
 use validator::Validate;
 
 /// Own error that wraps `anyhow::Error`.
@@ -32,14 +32,14 @@ pub struct ErrorResponse {
     message: String,
 }
 
-impl From<AppError> for ErrorResponse{
+impl From<AppError> for ErrorResponse {
     fn from(value: AppError) -> Self {
         ErrorResponse {
             r#type: value.r#type(),
             message: value.to_string(),
         }
     }
-} 
+}
 
 // Create our own JSON extractor by wrapping `axum::Json`. This makes it easy to override the
 // rejection and provide our own which formats errors to match our application.
@@ -90,10 +90,19 @@ impl<T: Validate> AppValidate for T {
 /// Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        error!("{}", self);
+        // Warn about user errors and log them, but error about server errors
+        match self {
+            AppError::JsonRejection(_)
+            | AppError::AuthError(_)
+            | AppError::SerdeError(_)
+            | AppError::ValidationError(_) => warn!("{}", self),
+            AppError::SqlxError(_) | AppError::Generic(_) => error!("{}", self),
+        }
         let (status, message) = match &self {
             AppError::JsonRejection(rejection) => (rejection.status(), rejection.body_text()),
-            AppError::ValidationError(e) => (StatusCode::BAD_REQUEST, serde_json::to_string(&e).unwrap()),
+            AppError::ValidationError(e) => {
+                (StatusCode::BAD_REQUEST, serde_json::to_string(&e).unwrap())
+            }
             AppError::SerdeError(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             AppError::AuthError(e) => (StatusCode::UNAUTHORIZED, e.to_string()),
             AppError::SqlxError(_) | AppError::Generic(_) => (
@@ -102,11 +111,18 @@ impl IntoResponse for AppError {
             ),
         };
         // Return a JSON response with the error type and message.
-        (status, Json(ErrorResponse { r#type: self.r#type(), message })).into_response()
+        (
+            status,
+            Json(ErrorResponse {
+                r#type: self.r#type(),
+                message,
+            }),
+        )
+            .into_response()
     }
 }
 
-impl AppError{
+impl AppError {
     /// Get the error type as a string to notify the client of what went wrong
     pub fn r#type(&self) -> String {
         match self {

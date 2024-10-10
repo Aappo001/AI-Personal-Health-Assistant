@@ -33,9 +33,10 @@ use chat::{
 };
 use cli::Args;
 use dashmap::DashMap;
-use log::info;
+use tracing::log;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
+use tracing::info;
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
@@ -50,7 +51,7 @@ pub const PROTOCOL: &str = "sqlite:///";
 pub const PROTOCOL: &str = "sqlite://";
 
 /// The application state that is shared across all routes.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.

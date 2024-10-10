@@ -13,10 +13,10 @@ use axum::{
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
-use log::{error, info};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast::{self};
+use tracing::{error, info, instrument};
 
 use crate::error::{AppError, ErrorResponse};
 use crate::{
@@ -176,11 +176,12 @@ pub async fn get_conversation(
 }
 
 // Initializing a websocket connection should look like the following in js
-// let ws = new WebSocket("ws://localhost:3000/ws", [
+// let ws = new WebSocket("ws://localhost:3000/api/ws", [
 // "fakeProtocol",
 // btoa("Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJDeWFuIiwiZXhwIjoxNzI3NDA2MDQ1fQ.lxlii16WpcD0gdkIOWcTCzPSmnlS0Dmp5uFVqY-VxoQ")
 // .replace(/=/g, '')
 // ]);
+//
 /// Initializer for a websocket connection
 /// Doesn't actually do anything with the connection other than authorization
 /// Passes on the connection to the `conversations_socket` function where the actual
@@ -301,6 +302,7 @@ struct RequestMessage {
 /// Handles incoming websocket connections
 // TODO: Implement querying AI model for responses
 // TODO: Refactor this function so the receive and send tasks are separate functions
+#[instrument]
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
 
