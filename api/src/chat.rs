@@ -16,7 +16,7 @@ use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast::{self};
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 use crate::error::{AppError, ErrorResponse};
 use crate::{
@@ -126,6 +126,7 @@ async fn create_conversation(
 }
 
 /// A message in a conversation
+// Might add a field for whether the message should trigger the AI
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
@@ -279,6 +280,8 @@ pub struct InviteData {
 enum SocketRequest {
     /// Send a message to the conversation
     SendMessage(ChatMessage),
+    /// Edit a message in the conversation
+    EditMessage(ChatMessage),
     /// Invite a user to the conversation
     InviteUser(InviteData),
     /// Message has been read in given conversation
@@ -462,6 +465,45 @@ async fn save_message(
     .await?)
 }
 
+/// Edit message in the database
+async fn edit_message(
+    pool: &SqlitePool,
+    message: &ChatMessage,
+    user: &UserToken,
+) -> Result<ChatMessage, AppError> {
+    // Check if the message id is present
+    let Some(message_id) = message.id else {
+        return Err(anyhow!("Message id is required to edit message").into());
+    };
+
+    // Check if the message exists in the database
+    let Some(message_user) = sqlx::query!("SELECT user_id FROM messages WHERE id = ?", message_id)
+        .fetch_optional(pool)
+        .await?
+    else {
+        return Err(anyhow!("Message not found").into());
+    };
+
+    // Check if the user has permission to edit the message
+    if message_user.user_id != user.id {
+        return Err(anyhow!("User does not have permission to edit message").into());
+    }
+
+    let now = chrono::Utc::now();
+
+    // Update the message in the database
+    // We know the message exists so we can just use `fetch_one`
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "UPDATE messages SET message = ?, modified_at = ? WHERE id = ? RETURNING *",
+        message.message,
+        now,
+        message_id
+    )
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Invite multiple users to a conversation
 async fn invite_user(
     pool: &SqlitePool,
@@ -590,7 +632,26 @@ async fn handle_message(
                         if let Some(user) = state.user_sockets.get(&user.user_id) {
                             if let Err(e) = user.send(SocketResponse::Message(chat_message.clone()))
                             {
-                                eprintln!("Error sending message: {}", e);
+                                warn!("Error sending message: {}", e);
+                            }
+                        }
+                    }
+                }
+                SocketRequest::EditMessage(chat_message) => {
+                    let chat_message = edit_message(&state.pool, &chat_message, user).await?;
+                    // Same as above
+                    // Might refactor this into a function
+                    let users = sqlx::query!(
+                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
+                        chat_message.conversation_id
+                    )
+                    .fetch_all(&state.pool)
+                    .await?;
+                    for user in users {
+                        if let Some(user) = state.user_sockets.get(&user.user_id) {
+                            if let Err(e) = user.send(SocketResponse::Message(chat_message.clone()))
+                            {
+                                warn!("Error sending message: {}", e);
                             }
                         }
                     }
@@ -609,9 +670,7 @@ async fn handle_message(
                 }
                 SocketRequest::RequestMessages(request_message) => {
                     for message in request_messages(&state.pool, &request_message, user).await? {
-                        if let Err(e) = tx.send(SocketResponse::Message(message)) {
-                            eprintln!("Error sending message: {}", e);
-                        }
+                        tx.send(SocketResponse::Message(message))?;
                     }
                 }
             }
