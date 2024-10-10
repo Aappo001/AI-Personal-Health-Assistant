@@ -137,7 +137,10 @@ pub struct ChatMessage {
     /// and a new conversation should be created
     pub conversation_id: Option<i64>,
     pub message: String,
-    pub user_id: i64,
+    /// The id of the user who sent the message
+    /// This does not need to be sent by the client, it will be set by the server
+    /// This will not be None when the message is sent to the client
+    pub user_id: Option<i64>,
     pub created_at: Option<NaiveDateTime>,
     pub modified_at: Option<NaiveDateTime>,
 }
@@ -430,15 +433,15 @@ async fn save_message(
     message: &ChatMessage,
     user: &UserToken,
 ) -> Result<ChatMessage, AppError> {
-    if user.id != message.user_id {
-        return Err(anyhow!("User does not have permission to send message").into());
-    }
-    if message.conversation_id.is_none() {
-        create_conversation(pool, message, user).await?;
-    }
+    // If the conversation_id is None, this is the first message in a conversation
+    // so create a new conversation and get the id
+    let conversation_id = message
+        .conversation_id
+        .unwrap_or(create_conversation(pool, message, user).await?.id);
+
     if sqlx::query!(
         "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
-        message.conversation_id,
+        conversation_id,
         user.id
     )
     .fetch_optional(pool)
@@ -447,11 +450,12 @@ async fn save_message(
     {
         return Err(anyhow!("User is not in the conversation").into());
     }
+
     Ok(sqlx::query_as!(
         ChatMessage,
         "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?) RETURNING *",
         user.id,
-        message.conversation_id,
+        conversation_id,
         message.message
     )
     .fetch_one(pool)
