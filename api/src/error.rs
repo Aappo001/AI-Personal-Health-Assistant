@@ -12,6 +12,8 @@ use serde::Serialize;
 use tracing::{error, warn};
 use validator::Validate;
 
+use crate::auth::JwtError;
+
 /// Own error that wraps `anyhow::Error`.
 /// Useful to provide more fine grained error handling in our application.
 /// Helps us debug errors in the code easier and gives the client a better idea of what went wrong.
@@ -36,6 +38,15 @@ impl From<AppError> for ErrorResponse {
     fn from(value: AppError) -> Self {
         ErrorResponse {
             r#type: value.r#type(),
+            message: value.to_string(),
+        }
+    }
+}
+
+impl From<JwtError> for ErrorResponse{
+    fn from(value: JwtError) -> Self {
+        ErrorResponse {
+            r#type: "AuthError".to_owned(),
             message: value.to_string(),
         }
     }

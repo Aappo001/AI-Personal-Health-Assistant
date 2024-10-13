@@ -18,7 +18,7 @@ use sqlx::{prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast::{self};
 use tracing::{error, info, instrument, warn};
 
-use crate::error::{AppError, ErrorResponse};
+use crate::{auth::JwtAuth, error::{AppError, ErrorResponse}};
 use crate::{
     error::AppJson,
     users::{authorize_user, UserToken},
@@ -42,9 +42,8 @@ pub struct Conversation {
 /// Get all the conversations the user is in
 pub async fn get_user_conversations(
     State(pool): State<SqlitePool>,
-    headers: HeaderMap,
+    JwtAuth(user): JwtAuth<UserToken>,
 ) -> Result<Response, AppError> {
-    let user = authorize_user(&headers)?;
     let res = &sqlx::query_as!(
         Conversation,
         r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
@@ -62,10 +61,9 @@ pub async fn get_user_conversations(
 /// Initiated from a POST request
 pub async fn create_conversation_rest(
     State(pool): State<SqlitePool>,
-    headers: HeaderMap,
+    JwtAuth(user): JwtAuth<UserToken>,
     AppJson(init_message): AppJson<ChatMessage>,
 ) -> Result<Response, AppError> {
-    let user = authorize_user(&headers)?;
     // Limit the title to 32 characters
     // let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
     Ok((
@@ -149,10 +147,9 @@ pub struct ChatMessage {
 /// Get all the messages in a conversation
 pub async fn get_conversation(
     State(pool): State<SqlitePool>,
-    headers: HeaderMap,
+    JwtAuth(user): JwtAuth<UserToken>,
     Path(conversation_id): Path<i64>,
 ) -> Result<Response, AppError> {
-    let user = authorize_user(&headers)?;
     if sqlx::query!(
         r#"SELECT id FROM conversations
             JOIN user_conversations ON user_conversations.conversation_id = conversations.id

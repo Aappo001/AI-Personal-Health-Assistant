@@ -4,7 +4,6 @@ use anyhow::Result;
 use ai_health_assistant_api::{cli::Args, init_db, start_server, PROTOCOL};
 
 use clap::Parser;
-use tracing_subscriber::fmt::init;
 
 // TODO: Add better, more integrated and descriptive logging
 #[tokio::main]

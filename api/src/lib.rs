@@ -10,6 +10,7 @@ pub mod error;
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
+pub mod auth;
 use std::{
     fs::{create_dir_all, File},
     net::SocketAddr,

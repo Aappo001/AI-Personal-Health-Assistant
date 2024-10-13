@@ -19,7 +19,7 @@ use serde_json::json;
 use sqlx::SqlitePool;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
-use crate::error::{AppError, AppJson, AppValidate};
+use crate::{auth::JwtAuth, error::{AppError, AppJson, AppValidate}};
 
 /// The data required to create a new user
 #[derive(Serialize, Deserialize, Validate)]
@@ -298,19 +298,17 @@ pub async fn get_user_profile(
 
 pub async fn delete_user(
     State(pool): State<SqlitePool>,
-    headers: HeaderMap,
+    JwtAuth(user): JwtAuth<UserToken>,
     AppJson(user_data): AppJson<LoginData>,
 ) -> Result<Response, AppError> {
-    let token_user = authorize_user(&headers)?;
-
-    if token_user.username != user_data.username {
+    if user.username != user_data.username {
         return Err(AppError::AuthError(anyhow!("Token does not match user")));
     }
 
     if sqlx::query!(
         "SELECT id FROM users where id = ? and username = ?",
-        token_user.id,
-        token_user.username
+        user.id,
+        user.username
     )
     .fetch_optional(&pool)
     .await?
@@ -319,7 +317,7 @@ pub async fn delete_user(
         return Ok((StatusCode::NOT_FOUND, "User does not exist").into_response());
     }
 
-    sqlx::query!("DELETE FROM users where id = ?", token_user.id)
+    sqlx::query!("DELETE FROM users where id = ?", user.id)
         .execute(&pool)
         .await?;
 
