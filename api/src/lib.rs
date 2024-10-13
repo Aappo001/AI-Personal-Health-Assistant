@@ -1,3 +1,4 @@
+pub mod auth;
 /// Contains the logic for the chat side of the application. Including the routes for creating a
 /// conversation, getting a conversation, and connecting to a websocket for chatting.
 pub mod chat;
@@ -10,7 +11,6 @@ pub mod error;
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
-pub mod auth;
 use std::{
     fs::{create_dir_all, File},
     net::SocketAddr,
@@ -22,22 +22,26 @@ use std::{
 use anyhow::Result;
 use axum::{
     extract::FromRef,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Router, ServiceExt,
 };
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    cors::{self, AllowOrigin, CorsLayer},
+    services::ServeDir,
+    trace::TraceLayer,
+};
 
 use chat::{
     connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
 };
 use cli::Args;
 use dashmap::DashMap;
-use tracing::log;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
+use tracing::log;
 use users::{authenticate_user, create_user, delete_user, get_user_profile};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
@@ -84,6 +88,14 @@ impl FromRef<AppState> for SqlitePool {
 
 /// Start the server and listen for incoming connections.
 pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
+    let origin_regex = regex::Regex::new(r"^https?://localhost:\d+/?$").unwrap();
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(move |origin: &HeaderValue, _: _| {
+            origin_regex.is_match(origin.to_str().unwrap_or_default())
+        }))
+        .allow_methods(cors::Any)
+        .allow_headers(cors::Any);
+
     let api = Router::new()
         .route("/register", post(create_user))
         .route("/login", post(authenticate_user))
@@ -92,7 +104,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
-        .route("/ws", get(connect_conversation));
+        .route("/ws", get(connect_conversation))
+        .layer(cors);
 
     let app = Router::new()
         .nest("/api", api)
