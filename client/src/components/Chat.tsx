@@ -1,14 +1,19 @@
+import useUserStore from "../store/hooks/useUserStore";
 import Background from "./Background";
 import ChatSidebar from "./ChatSidebar";
 
 export default function Chat() {
+  const user = useUserStore();
+
   return (
     <Background color="black">
       <div className="relative h-screen">
         <ChatSidebar />
         <div className="flex flex-col justify-center items-center w-screen h-screen">
           <h1 className=" text-5xl text-offwhite leading-relaxed my-16">
-            How can I help you today?
+            {user.username
+              ? `Hello ${user.username}, how can I help you today`
+              : "How can I help you today?"}
           </h1>
           <div className=" bg-[#363131] w-1/2 focus:outline-none rounded-full text-offwhite flex justify-between">
             <input
@@ -21,24 +26,6 @@ export default function Chat() {
               Submit
             </button>
           </div>
-        </div>
-      </div>
-    </Background>
-  );
-
-  return (
-    <Background color="black">
-      <div className="flex">
-        <div className=" w-[20vw] h-screen flex flex-col justify-center items-center border-2 border-main-green">
-          <p className=" text-lg text-lilac">User 1</p>
-          <p className=" text-lg text-lilac">User 1</p>
-          <p className=" text-lg text-lilac">User 1</p>
-          <p className=" text-lg text-lilac">User 1</p>
-          <p className=" text-lg text-lilac">User 1</p>
-          <p className=" text-lg text-lilac">User 1</p>
-        </div>
-        <div className="w-screen flex justify-center">
-          <h1 className=" text-2xl text-lilac">Chat Page</h1>
         </div>
       </div>
     </Background>
