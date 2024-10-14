@@ -1,17 +1,15 @@
 import Background from "./Background";
+import ChatSidebar from "./ChatSidebar";
+
 export default function Chat() {
   return (
     <Background color="black">
       <div className="relative h-screen">
-        <div className="absolute w-[20vw] h-full flex flex-col justify-center items-center border-2 border-main-green">
-          <p className="text-lg text-lilac">User 1</p>
-          <p className="text-lg text-lilac">User 1</p>
-          <p className="text-lg text-lilac">User 1</p>
-          <p className="text-lg text-lilac">User 1</p>
-          <p className="text-lg text-lilac">User 1</p>
-          <p className="text-lg text-lilac">User 1</p>
-        </div>
-        <div className="flex justify-center items-center w-screen h-screen">
+        <ChatSidebar />
+        <div className="flex flex-col justify-center items-center w-screen h-screen">
+          <h1 className=" text-5xl text-offwhite leading-relaxed my-16">
+            How can I help you today?
+          </h1>
           <div className=" bg-[#363131] w-1/2 focus:outline-none rounded-full text-offwhite flex justify-between">
             <input
               type="text"

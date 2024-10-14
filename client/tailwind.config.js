@@ -19,7 +19,7 @@ export default {
         "surface75": "#bbbaa6",
         "surface50": "#7c7c6f",
         "surface25": "#42433d",
-        "main-grey": "#676767"
+        "main-grey": "#363131"
 
       },
     },

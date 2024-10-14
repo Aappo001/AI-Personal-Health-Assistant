@@ -29,6 +29,14 @@ function App() {
             Login
           </Link>
         </div>
+        <div className="w-full flex justify-center mt-5">
+          <Link
+            to="/chat"
+            className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-main-green hover:text-main-black border-main-green text-main-green m-2 rounded-full leading-relaxed"
+          >
+            Chat
+          </Link>
+        </div>
       </Background>
     </>
   );
