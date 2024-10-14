@@ -5,6 +5,7 @@ import App from "./App.tsx";
 import PageNotFound from "./components/PageNotFound.tsx";
 import Login from "./components/Login.tsx";
 import Register from "./components/Register.tsx";
+import Chat from "./components/Chat.tsx";
 
 const router = createBrowserRouter([
   {
@@ -20,6 +21,11 @@ const router = createBrowserRouter([
   {
     path: "/register",
     element: <Register />,
+    errorElement: <PageNotFound />,
+  },
+  {
+    path: "/chat",
+    element: <Chat />,
     errorElement: <PageNotFound />,
   },
 ]);

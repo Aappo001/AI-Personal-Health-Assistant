@@ -10,3 +10,11 @@ export type LoginBody = {
     username: string;
     password: string
 }
+
+export type ServerResponse = {
+    message: string
+}
+
+export type ErrorResponse = {
+    errorMessage: string
+}
