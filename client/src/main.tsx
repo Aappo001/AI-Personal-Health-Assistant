@@ -8,6 +8,7 @@ import PageNotFound from "./components/PageNotFound.tsx";
 import Login from "./components/Login.tsx";
 import Register from "./components/Register.tsx";
 import Chat from "./components/Chat.tsx";
+import { ChatHome } from "./components/ChatHome.tsx";
 
 const router = createBrowserRouter([
   {
@@ -29,6 +30,18 @@ const router = createBrowserRouter([
     path: "/chat",
     element: <Chat />,
     errorElement: <PageNotFound />,
+    children: [
+      {
+        index: true,
+        element: <ChatHome />,
+        errorElement: <PageNotFound />,
+      },
+      {
+        path: "/chat/messages",
+        element: <Register />,
+        errorElement: <PageNotFound />,
+      },
+    ],
   },
 ]);
 
