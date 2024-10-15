@@ -22,10 +22,9 @@ use std::{
 use anyhow::Result;
 use axum::{
     extract::FromRef,
-    http::{HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    http::HeaderValue,
     routing::{delete, get, post},
-    Router, ServiceExt,
+    Router,
 };
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
@@ -41,8 +40,7 @@ use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
-use tracing::log;
-use users::{authenticate_user, create_user, delete_user, get_user_profile};
+use users::{authenticate_user, create_user, delete_user, get_user_by_id, get_user_by_username};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -99,7 +97,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
     let api = Router::new()
         .route("/register", post(create_user))
         .route("/login", post(authenticate_user))
-        .route("/users/profile/:id", get(get_user_profile))
+        .route("/users/id/:id", get(get_user_by_id))
+        .route("/users/username/:username", get(get_user_by_username))
         .route("/users/delete", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))

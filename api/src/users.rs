@@ -19,7 +19,10 @@ use serde_json::json;
 use sqlx::SqlitePool;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
-use crate::{auth::JwtAuth, error::{AppError, AppJson, AppValidate}};
+use crate::{
+    auth::JwtAuth,
+    error::{AppError, AppJson, AppValidate},
+};
 
 /// The data required to create a new user
 #[derive(Serialize, Deserialize, Validate)]
@@ -224,7 +227,7 @@ pub async fn authenticate_user(
         &token_data,
         &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
     )?;
-    
+
     let user = PublicUser {
         id: existing_user.id,
         username: existing_user.username,
@@ -275,25 +278,40 @@ pub struct PublicUser {
     pub last_name: Option<String>,
 }
 
-pub async fn get_user_profile(
+pub async fn get_user_by_id(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
-    let Some(user) = sqlx::query!("SELECT * FROM users where id = ?", id)
-        .fetch_optional(&pool)
-        .await?
+    let Some(user) = sqlx::query_as!(
+        PublicUser,
+        "SELECT id, username, first_name, last_name FROM users WHERE id = ?",
+        id
+    )
+    .fetch_optional(&pool)
+    .await?
     else {
-        return Ok((StatusCode::NOT_FOUND, "User not found").into_response());
+        return Ok((StatusCode::NOT_FOUND, Json(json!({ "message": "User not found" }))).into_response());
     };
 
-    let public_user = PublicUser {
-        id: user.id,
-        username: user.username,
-        first_name: user.first_name,
-        last_name: user.last_name,
+    Ok((StatusCode::OK, Json(user)).into_response())
+}
+
+pub async fn get_user_by_username(
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+) -> Result<Response, AppError> {
+    let Some(user) = sqlx::query_as!(
+        PublicUser,
+        "SELECT id, username, first_name, last_name FROM users WHERE username = ?",
+        username
+    )
+    .fetch_optional(&pool)
+    .await?
+    else {
+        return Ok((StatusCode::NOT_FOUND, Json(json!({ "message": "User not found" }))).into_response());
     };
 
-    Ok((StatusCode::OK, Json(public_user)).into_response())
+    Ok((StatusCode::OK, Json(user)).into_response())
 }
 
 pub async fn delete_user(
