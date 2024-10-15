@@ -18,7 +18,7 @@ export default function ChatSidebar({
       navigate("/chat");
     } else {
       setActiveConvo(index);
-      navigate("/chat/messages");
+      navigate(`/chat/messages/${friends[index]}`);
     }
   };
 
