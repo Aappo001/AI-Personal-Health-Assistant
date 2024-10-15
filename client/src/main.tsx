@@ -9,6 +9,7 @@ import Login from "./components/Login.tsx";
 import Register from "./components/Register.tsx";
 import Chat from "./components/Chat.tsx";
 import { ChatHome } from "./components/ChatHome.tsx";
+import ChatMessagePage from "./components/ChatMessagePage.tsx";
 
 const router = createBrowserRouter([
   {
@@ -38,7 +39,7 @@ const router = createBrowserRouter([
       },
       {
         path: "/chat/messages",
-        element: <Register />,
+        element: <ChatMessagePage />,
         errorElement: <PageNotFound />,
       },
     ],
