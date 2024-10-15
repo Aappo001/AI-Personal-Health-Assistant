@@ -14,11 +14,14 @@ use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::FromRow, SqlitePool};
+use sqlx::{pool, prelude::FromRow, SqlitePool};
 use tokio::sync::broadcast::{self};
 use tracing::{error, info, instrument, warn};
 
-use crate::{auth::JwtAuth, error::{AppError, ErrorResponse}};
+use crate::{
+    auth::JwtAuth,
+    error::{AppError, ErrorResponse},
+};
 use crate::{
     error::AppJson,
     users::{authorize_user, UserToken},
@@ -226,9 +229,12 @@ pub async fn connect_conversation(
 
 /// The types of responses from the socket
 #[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type")]
 pub enum SocketResponse {
     /// Message to be sent to the client
     Message(ChatMessage),
+    /// The i64 is the id of the message to delete
+    DeleteMessage(i64),
     /// Invite to a conversation
     Invite(InviteData),
     /// Error to inform the client
@@ -279,6 +285,9 @@ enum SocketRequest {
     SendMessage(ChatMessage),
     /// Edit a message in the conversation
     EditMessage(ChatMessage),
+    /// Edit a message in the conversation
+    /// The i64 is the id of the message to delete
+    DeleteMessage(i64),
     /// Invite a user to the conversation
     InviteUser(InviteData),
     /// Message has been read in given conversation
@@ -501,6 +510,29 @@ async fn edit_message(
     .await?)
 }
 
+/// Delete a message in the database
+async fn delete_message(
+    pool: &SqlitePool,
+    message_id: i64,
+    user: &UserToken,
+) -> Result<(), AppError> {
+    // Check if the message exists in the database
+    let Some(message) = sqlx::query_as!(ChatMessage, "SELECT * FROM messages WHERE id = ?", message_id)
+        .fetch_optional(pool)
+        .await? else {
+        return Err(anyhow!("Message not found").into());
+    };
+    // Check if the user has permission to delete the message
+    if message.user_id.expect("user id should be set in database") != user.id {
+        return Err(anyhow!("User does not have permission to delete message").into());
+    }
+    // Delete the message from the database
+    sqlx::query!("DELETE FROM messages WHERE id = ?", message.id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Invite multiple users to a conversation
 async fn invite_user(
     pool: &SqlitePool,
@@ -616,42 +648,18 @@ async fn handle_message(
             match msg {
                 SocketRequest::SendMessage(chat_message) => {
                     let chat_message = save_message(&state.pool, &chat_message, user).await?;
-                    // Find all the users in the conversation
-                    let users = sqlx::query!(
-                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
-                        chat_message.conversation_id
-                    )
-                    .fetch_all(&state.pool)
-                    .await?;
-                    // Send the message to all the users in the conversation
-                    for user in users {
-                        // Only send the message to users who are connected
-                        if let Some(user) = state.user_sockets.get(&user.user_id) {
-                            if let Err(e) = user.send(SocketResponse::Message(chat_message.clone()))
-                            {
-                                warn!("Error sending message: {}", e);
-                            }
-                        }
-                    }
+                    // Broadcast the newly saved message to all the users in the conversation
+                    broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
                 }
                 SocketRequest::EditMessage(chat_message) => {
                     let chat_message = edit_message(&state.pool, &chat_message, user).await?;
-                    // Same as above
-                    // Might refactor this into a function
-                    let users = sqlx::query!(
-                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
-                        chat_message.conversation_id
-                    )
-                    .fetch_all(&state.pool)
-                    .await?;
-                    for user in users {
-                        if let Some(user) = state.user_sockets.get(&user.user_id) {
-                            if let Err(e) = user.send(SocketResponse::Message(chat_message.clone()))
-                            {
-                                warn!("Error sending message: {}", e);
-                            }
-                        }
-                    }
+                    // Broadcast the edited message to all the users in the conversation
+                    broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
+                }
+                SocketRequest::DeleteMessage(message_id) => {
+                    delete_message(&state.pool, message_id, user).await?;
+                    // Broadcast the deleted message to all the users in the conversation
+                    broadcast_event(state, SocketResponse::DeleteMessage(message_id)).await?;
                 }
                 SocketRequest::InviteUser(invite) => {
                     invite_user(&state.pool, &invite, user).await?;
@@ -686,6 +694,34 @@ async fn handle_message(
     Ok(())
 }
 
+
+/// Broadcast an event to all the users in a conversation
+/// Events include messages, edits, and deletes, ect.
+async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
+    let id = match &msg {
+        SocketResponse::Message(chat_msg) => chat_msg
+            .conversation_id
+            .expect("Conversation id should be set"),
+        SocketResponse::DeleteMessage(id) => *id,
+        //
+        _ => unreachable!("uuhhh how"),
+    };
+    let users = sqlx::query!(
+        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
+        id
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for user in users {
+        if let Some(user) = state.user_sockets.get(&user.user_id) {
+            if let Err(e) = user.send(msg.clone()) {
+                warn!("Error sending message: {}", e);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Send a message to the client over the websocket
 /// Option<()> is returned because the connection may have been closed
 /// Some(()) is returned if the message was sent successfully
@@ -697,32 +733,19 @@ async fn send_message(
     // *SAFETY* The `serde_json::to_string` function can safely be unwrapped because the `SocketResponse` enum
     // is serializable and will not panic
     match msg {
-        SocketResponse::Message(chat_msg) => {
-            sender
-                .send(Message::Text(serde_json::to_string(&chat_msg).unwrap()))
-                .await?;
-        }
-        SocketResponse::Invite(invite) => {
-            sender
-                .send(Message::Text(serde_json::to_string(&invite).unwrap()))
-                .await?;
-        }
-        SocketResponse::ReadEvent(event) => {
-            sender
-                .send(Message::Text(serde_json::to_string(&event).unwrap()))
-                .await?;
-        }
-        SocketResponse::Error(e) => {
-            sender
-                .send(Message::Text(serde_json::to_string(&e).unwrap()))
-                .await?;
-        }
         SocketResponse::Pong(payload) => {
             sender.send(Message::Pong(payload)).await?;
         }
         SocketResponse::Close => {
             sender.close().await?;
             return Ok(None);
+        }
+        // All other responses should be serialized to JSON
+        // and sent as Text
+        response => {
+            sender
+                .send(Message::Text(serde_json::to_string(&response).unwrap()))
+                .await?;
         }
     }
     Ok(Some(()))
