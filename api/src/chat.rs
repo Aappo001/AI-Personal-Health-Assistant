@@ -517,9 +517,14 @@ async fn delete_message(
     user: &UserToken,
 ) -> Result<(), AppError> {
     // Check if the message exists in the database
-    let Some(message) = sqlx::query_as!(ChatMessage, "SELECT * FROM messages WHERE id = ?", message_id)
-        .fetch_optional(pool)
-        .await? else {
+    let Some(message) = sqlx::query_as!(
+        ChatMessage,
+        "SELECT * FROM messages WHERE id = ?",
+        message_id
+    )
+    .fetch_optional(pool)
+    .await?
+    else {
         return Err(anyhow!("Message not found").into());
     };
     // Check if the user has permission to delete the message
@@ -534,11 +539,12 @@ async fn delete_message(
 }
 
 /// Invite multiple users to a conversation
+/// Returns the conversation id that the users were invited to
 async fn invite_user(
     pool: &SqlitePool,
     invite: &InviteData,
     user: &UserToken,
-) -> Result<(), AppError> {
+) -> Result<i64, AppError> {
     if user.id != invite.inviter {
         return Err(anyhow!("User does not have permission to invite users").into());
     }
@@ -612,7 +618,7 @@ async fn invite_user(
     }
     tx.commit().await?;
 
-    Ok(())
+    Ok(conversation_id)
 }
 
 /// Mark the conversation as read by the logged in user
@@ -661,17 +667,21 @@ async fn handle_message(
                     // Broadcast the deleted message to all the users in the conversation
                     broadcast_event(state, SocketResponse::DeleteMessage(message_id)).await?;
                 }
-                SocketRequest::InviteUser(invite) => {
-                    invite_user(&state.pool, &invite, user).await?;
-                    tx.send(SocketResponse::Invite(invite))?;
+                SocketRequest::InviteUser(mut invite) => {
+                    invite.conversation_id = Some(invite_user(&state.pool, &invite, user).await?);
+                    broadcast_event(state, SocketResponse::Invite(invite)).await?;
                 }
                 SocketRequest::ReadMessage(conversation_id) => {
                     read_event(&state.pool, conversation_id, user).await?;
-                    tx.send(SocketResponse::ReadEvent(ReadEvent {
-                        conversation_id,
-                        user_id: user.id,
-                        timestamp: chrono::Utc::now().naive_utc(),
-                    }))?;
+                    broadcast_event(
+                        state,
+                        SocketResponse::ReadEvent(ReadEvent {
+                            conversation_id,
+                            user_id: user.id,
+                            timestamp: chrono::Utc::now().naive_utc(),
+                        }),
+                    )
+                    .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
                     for message in request_messages(&state.pool, &request_message, user).await? {
@@ -694,7 +704,6 @@ async fn handle_message(
     Ok(())
 }
 
-
 /// Broadcast an event to all the users in a conversation
 /// Events include messages, edits, and deletes, ect.
 async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
@@ -703,6 +712,10 @@ async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), Ap
             .conversation_id
             .expect("Conversation id should be set"),
         SocketResponse::DeleteMessage(id) => *id,
+        SocketResponse::ReadEvent(event) => event.conversation_id,
+        SocketResponse::Invite(invite) => invite
+            .conversation_id
+            .expect("Conversation id should be set"),
         //
         _ => unreachable!("uuhhh how"),
     };
@@ -715,7 +728,7 @@ async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), Ap
     for user in users {
         if let Some(user) = state.user_sockets.get(&user.user_id) {
             if let Err(e) = user.send(msg.clone()) {
-                warn!("Error sending message: {}", e);
+                warn!("Error broadcasting event: {}", e);
             }
         }
     }
