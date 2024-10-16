@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { LoginBody } from "../types";
 import Background from "./Background";
+import {
+  getJwtFromResponseHeader,
+  saveJwtToLocalStorage,
+} from "../utils/utils";
 
 export default function Login() {
   const [login, setLogin] = useState<LoginBody>({
@@ -33,6 +37,7 @@ export default function Login() {
       if (response.ok) {
         setResponseMessage(result.message);
         setError(false);
+        saveJwtToLocalStorage(getJwtFromResponseHeader(response));
       } else {
         setResponseMessage(result.message);
         setError(true);

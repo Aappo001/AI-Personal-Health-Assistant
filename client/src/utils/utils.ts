@@ -13,6 +13,8 @@ export async function RegisterUser(
 
   const result: ServerResponse = await response.json();
   if (!response.ok) return { errorMessage: result.message };
+  console.log(response.headers);
+  
   return result;
 }
 
@@ -31,3 +33,13 @@ export const generateRandomColorArray = (length: number): string[] => {
   }
   return convoColors;
 };
+
+export const getJwtFromResponseHeader = (response: Response) => {
+  const token = response.headers.get("authorization")?.split(" ")[1]
+  if(!token) return ""
+  return token
+}
+
+export const saveJwtToLocalStorage = (jwt: string) => {
+  localStorage.setItem("token", jwt)
+}
