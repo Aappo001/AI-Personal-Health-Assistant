@@ -14,7 +14,7 @@ use validator::Validate;
 
 use crate::auth::JwtError;
 
-/// Own error that wraps `anyhow::Error`.
+/// Error that wraps `anyhow::Error`.
 /// Useful to provide more fine grained error handling in our application.
 /// Helps us debug errors in the code easier and gives the client a better idea of what went wrong.
 pub enum AppError {
