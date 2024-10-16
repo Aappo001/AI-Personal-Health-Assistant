@@ -22,7 +22,7 @@ use std::{
 use anyhow::Result;
 use axum::{
     extract::FromRef,
-    http::HeaderValue,
+    http::{HeaderValue, HeaderName},
     routing::{delete, get, post},
     Router,
 };
@@ -92,7 +92,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
             origin_regex.is_match(origin.to_str().unwrap_or_default())
         }))
         .allow_methods(cors::Any)
-        .allow_headers(cors::Any);
+        .allow_headers(cors::Any)
+        .expose_headers(vec![HeaderName::from_static("authorization")]);
 
     let api = Router::new()
         .route("/register", post(create_user))
