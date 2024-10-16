@@ -12,13 +12,16 @@ use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::de::DeserializeOwned;
 
+/// Custom extractor for JWT authoriation
 pub struct JwtAuth<T>(pub T);
 
+/// Error that occurs when JWT authorization fails
 pub enum JwtError {
     InvalidToken,
     MissingToken,
 }
 
+/// Error message for `JwtError`
 impl Display for JwtError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -34,6 +37,8 @@ impl IntoResponse for JwtError {
     }
 }
 
+// Trait that allows us to use the struct as an extractor in the function
+// signature of a request handler
 #[async_trait]
 impl<T, S> FromRequestParts<S> for JwtAuth<T>
 where
@@ -43,9 +48,11 @@ where
     type Rejection = JwtError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        // Extract the token from the request headers
         let Some(token) = parts.headers.get(AUTHORIZATION) else {
             return Err(JwtError::MissingToken);
         };
+        // Attempt to decode the token
         let user: T = decode(
             token
                 .to_str()
