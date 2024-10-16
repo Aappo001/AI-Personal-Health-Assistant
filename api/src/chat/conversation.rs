@@ -1,31 +1,22 @@
-use std::{cmp, net::SocketAddr};
-
-use anyhow::anyhow;
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        ConnectInfo, Path, State,
+        Path, State,
     },
-    http::{header::AUTHORIZATION, HeaderMap, HeaderValue, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
-use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::{pool, prelude::FromRow, SqlitePool};
-use tokio::sync::broadcast::{self};
-use tracing::{error, info, instrument, warn};
+use sqlx::SqlitePool;
 
 use crate::{
     auth::JwtAuth,
-    error::{AppError, ErrorResponse},
+    error::AppError,
 };
 use crate::{
     error::AppJson,
-    users::{authorize_user, UserToken},
-    AppState,
+    users::UserToken,
 };
 
 /// A conversation between at least one user and an AI

@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use crate::utils::data_dir;
-use dotenv::{dotenv, var};
+use dotenv::var;
 
 /// The backend API for the chat application
 #[derive(Parser)]

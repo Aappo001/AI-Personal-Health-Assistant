@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The data required to create a new user
-#[derive(Serialize, Deserialize, Validate)]
+#[derive(Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateUser {
     #[validate(email(code = "Invalid email address"))]
@@ -162,7 +162,7 @@ fn check_password(password: &str) -> Result<(), ValidationError> {
 }
 
 /// The data required to authenticate a user
-#[derive(Serialize, Deserialize, Validate)]
+#[derive(Deserialize, Validate)]
 pub struct LoginData {
     #[validate(
         length(
@@ -245,6 +245,42 @@ pub async fn authenticate_user(
     Ok(response)
 }
 
+/// Data of the currently authenticated user
+/// Contains all user data except password
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionUser {
+    pub id: i64,
+    pub first_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    pub username: String,
+    pub email: String,
+}
+
+/// Returns the user data of the currently authenticated user
+/// from their JWT
+pub async fn get_user_from_token(
+    State(pool): State<SqlitePool>,
+    JwtAuth(user): JwtAuth<UserToken>,
+) -> Result<Response, AppError> {
+    let Some(user) = sqlx::query_as!(
+        SessionUser,
+        "SELECT id, username, email, first_name, last_name FROM users WHERE id = ?",
+        user.id
+    )
+    .fetch_optional(&pool)
+    .await?
+    else {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "message": "User not found" })),
+        )
+            .into_response());
+    };
+    Ok((StatusCode::OK, Json(user)).into_response())
+}
+
 pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
     let Some(token) = headers.get(AUTHORIZATION) else {
         return Err(AppError::AuthError(anyhow!("No token provided")));
@@ -268,7 +304,7 @@ pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
 
 /// Public user data that can be shared with other users
 /// Does not include sensitive information such as email or password
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicUser {
     pub id: i64,
@@ -290,7 +326,11 @@ pub async fn get_user_by_id(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((StatusCode::NOT_FOUND, Json(json!({ "message": "User not found" }))).into_response());
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "message": "User not found" })),
+        )
+            .into_response());
     };
 
     Ok((StatusCode::OK, Json(user)).into_response())
@@ -308,7 +348,11 @@ pub async fn get_user_by_username(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((StatusCode::NOT_FOUND, Json(json!({ "message": "User not found" }))).into_response());
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "message": "User not found" })),
+        )
+            .into_response());
     };
 
     Ok((StatusCode::OK, Json(user)).into_response())

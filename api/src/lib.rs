@@ -40,7 +40,7 @@ use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
-use users::{authenticate_user, create_user, delete_user, get_user_by_id, get_user_by_username};
+use users::{authenticate_user, create_user, delete_user, get_user_by_id, get_user_by_username, get_user_from_token};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -97,7 +97,10 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 
     let api = Router::new()
         .route("/register", post(create_user))
+        // Logins users in based on the JSON data in the response body
         .route("/login", post(authenticate_user))
+        // Logins users in based on the authorization header
+        .route("/login", get(get_user_from_token))
         .route("/users/id/:id", get(get_user_by_id))
         .route("/users/username/:username", get(get_user_by_username))
         .route("/users/delete", delete(delete_user))
