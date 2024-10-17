@@ -18,6 +18,28 @@ export async function RegisterUser(
   return result;
 }
 
+export const loginImplicitly = async (): Promise<string | undefined> => {
+  const jwt = getJwt()
+  if(!jwt) return
+  const response = await fetch("http://localhost:3000/api/login", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "authorization": `Bearer ${jwt}`
+    },
+  })
+  const data = await response.json()
+  if(!response.ok) {
+    console.log("Implicit Login Error");
+    return
+  }
+  console.log("Successful Implicit Login?");
+  
+  console.log(data);
+  return "fake user implicit login"
+  
+}
+
 const mainColors = [
   "bg-main-green",
   "bg-orangey",
@@ -42,4 +64,10 @@ export const getJwtFromResponseHeader = (response: Response) => {
 
 export const saveJwtToLocalStorage = (jwt: string) => {
   localStorage.setItem("token", jwt)
+}
+
+export const getJwt = (): string => {
+  const jwt = localStorage.getItem("token")
+  if(!jwt) return ""
+  return jwt
 }

@@ -18,3 +18,10 @@ export type ServerResponse = {
 export type ErrorResponse = {
     errorMessage: string
 }
+
+export type UserState = {
+    firstName: string,
+    lastName: string
+    username: string,
+    email: string,
+}

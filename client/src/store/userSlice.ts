@@ -1,19 +1,18 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { RegisterBody } from "../types";
+import { UserState } from "../types";
 
-const initialState: RegisterBody = {
+const initialState: UserState = {
     email: "",
     firstName: "",
     lastName: "",
     username: "",
-    password: ""
 }
 
 const userSlice = createSlice({
     name: "user",
     initialState,
     reducers: {
-        updateUser(state, action: PayloadAction<RegisterBody>){
+        updateUser(state, action: PayloadAction<UserState>){
             return {...state, ...action.payload}
         }
     }

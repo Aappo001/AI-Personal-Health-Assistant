@@ -45,7 +45,8 @@ export default function Register() {
       } else {
         setError(false);
         setResponseMessage(result.message);
-        dispatch(updateUser(user));
+        const { password, ...passwordlessUser } = user;
+        dispatch(updateUser(passwordlessUser));
       }
     } catch (error) {
       setResponseMessage("An error occurred. Please try again later.");
