@@ -228,21 +228,22 @@ pub async fn authenticate_user(
         &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
     )?;
 
-    let user = PublicUser {
+    let user = SessionUser {
         id: existing_user.id,
         username: existing_user.username,
+        email: existing_user.email,
         first_name: existing_user.first_name,
         last_name: existing_user.last_name,
     };
 
-    let response = Response::builder()
-        .status(StatusCode::OK)
-        .header(header::AUTHORIZATION, format!("Bearer {}", token))
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            serde_json::json!({"message": "Successfully authenticated", "user": serde_json::to_string(&user).unwrap() }).to_string(),
-        ))?;
-    Ok(response)
+    Ok((
+        StatusCode::OK,
+        [(header::AUTHORIZATION, format!("Bearer {}", token))],
+        // Don't need to set the content-type header since axum does
+        // it for us when we wrap the body in a `Json` struct
+        Json(json!({"message": "Successfully authenticated", "user": serde_json::to_string(&user).unwrap() })),
+    )
+        .into_response())
 }
 
 /// Data of the currently authenticated user
@@ -265,8 +266,8 @@ pub async fn get_user_from_token(
     JwtAuth(user): JwtAuth<UserToken>,
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
-        PublicUser,
-        "SELECT id, username, first_name, last_name FROM users WHERE id = ?",
+        SessionUser,
+        "SELECT id, username, email, first_name, last_name FROM users WHERE id = ?",
         user.id
     )
     .fetch_optional(&pool)
