@@ -265,8 +265,8 @@ pub async fn get_user_from_token(
     JwtAuth(user): JwtAuth<UserToken>,
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
-        SessionUser,
-        "SELECT id, username, email, first_name, last_name FROM users WHERE id = ?",
+        PublicUser,
+        "SELECT id, username, first_name, last_name FROM users WHERE id = ?",
         user.id
     )
     .fetch_optional(&pool)
