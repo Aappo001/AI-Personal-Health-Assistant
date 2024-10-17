@@ -82,6 +82,12 @@ pub enum SocketResponse {
     DeleteMessage(i64),
     /// Invite to a conversation
     Invite(InviteData),
+    /// Friend request to be sent to the client
+    FriendRequest {
+        sender_id: i64,
+        receiver_id: i64,
+        created_at: chrono::NaiveDateTime,
+    },
     /// Error to inform the client
     Error(ErrorResponse),
     /// Pong to the client
@@ -104,6 +110,8 @@ enum SocketRequest {
     /// Edit a message in the conversation
     /// The i64 is the id of the message to delete
     DeleteMessage(i64),
+    /// Send a friend request to the user
+    SendFriendRequest(i64),
     /// Invite a user to the conversation
     InviteUser(InviteData),
     /// Message has been read in given conversation
@@ -354,6 +362,60 @@ async fn delete_message(
     Ok(())
 }
 
+async fn send_friend_request(
+    state: &AppState,
+    receiver_id: i64,
+    user: &UserToken,
+) -> Result<(), AppError> {
+    if user.id == receiver_id {
+        return Err(anyhow!("User cannot send friend request to themselves").into());
+    }
+
+    // Check that the users are not already friends
+    let user1_id = user.id.min(receiver_id);
+    let user2_id = user.id.max(receiver_id);
+    sqlx::query!(
+        "SELECT user1_id FROM friendships WHERE user1_id = ? and user2_id = ?",
+        user1_id,
+        user2_id
+    )
+    .fetch_optional(&state.pool)
+    .await?;
+
+    // Check that a friend request does not already exist between the either user
+    if sqlx::query!(
+        "SELECT sender_id FROM friend_requests WHERE (sender_id = ? or receiver_id = ?) and (sender_id = ? or receiver_id = ?)",
+        user.id,
+        user.id,
+        receiver_id,
+        receiver_id
+    )
+        .fetch_optional(&state.pool)
+        .await?
+        .is_none()
+    {
+        return Err(anyhow!("Friend request already exists").into())
+    }
+
+    // Everything is good so insert the friend request into the database
+    let friend_request = sqlx::query_as!(SocketResponse::FriendRequest, "INSERT INTO friend_requests (sender_id, receiver_id) VALUES (?, ?) RETURNING *", user.id, receiver_id)
+        .fetch_one(&state.pool)
+        .await?;
+
+    // Only send the friend request over the websocket to the receiver
+    // if the receiver is online
+    if let Some(receiver) = state.user_sockets.get(&receiver_id) {
+        receiver.send(friend_request.clone())?;
+    }
+
+    // Send the friend request over the websocket to the sender
+    // to let them know that the friend request was sent successfully
+    if let Some(sender) = state.user_sockets.get(&user.id) {
+        sender.send(friend_request)?;
+    }
+    Ok(())
+}
+
 /// Invite multiple users to a conversation
 /// Returns the conversation id that the users were invited to
 async fn invite_user(
@@ -486,6 +548,9 @@ async fn handle_message(
                 SocketRequest::InviteUser(mut invite) => {
                     invite.conversation_id = Some(invite_user(&state.pool, &invite, user).await?);
                     broadcast_event(state, SocketResponse::Invite(invite)).await?;
+                }
+                SocketRequest::SendFriendRequest(receiver_id) => {
+                    send_friend_request(state, receiver_id, user).await?;
                 }
                 SocketRequest::ReadMessage(conversation_id) => {
                     read_event(&state.pool, conversation_id, user).await?;

@@ -1,9 +1,9 @@
-CREATE TABLE friendships(
-    user_id1 INTEGER NOT NULL,
-    user_id2 INTEGER NOT NULL,
+CREATE TABLE friendships (
+    user1_id INTEGER NOT NULL,
+    user2_id INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CHECK (user_id1 < user_id2),
-    PRIMARY KEY (user_id1, user_id2),
-    FOREIGN KEY (user_id1) REFERENCES users(id),
-    FOREIGN KEY (user_id2) REFERENCES users(id)
+    CHECK (user1_id < user2_id),
+    PRIMARY KEY (user1_id, user2_id),
+    FOREIGN KEY (user1_id) REFERENCES users(id),
+    FOREIGN KEY (user2_id) REFERENCES users(id)
 );
