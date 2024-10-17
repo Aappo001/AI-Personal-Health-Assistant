@@ -92,7 +92,12 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
             origin_regex.is_match(origin.to_str().unwrap_or_default())
         }))
         .allow_methods(cors::Any)
-        .allow_headers(cors::Any)
+        .allow_headers(vec![
+            HeaderName::from_static("authorization"),
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("accept")
+            ]
+        )
         .expose_headers(vec![HeaderName::from_static("authorization")]);
 
     let api = Router::new()
