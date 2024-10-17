@@ -14,9 +14,12 @@ function App() {
           <h1 className=" text-6xl text-offwhite">
             AI Personal Health Assistant
           </h1>
-          <h1 className=" text-offwhite text-3xl">
-            Implicit User: {user.username} {user.firstName}
-          </h1>
+          {user && (
+            <h1 className=" text-offwhite text-3xl underline">
+              Welcome back, {user.username}
+            </h1>
+          )}
+
           <p className=" text-surface75 text-xl">
             An AI assistant that monitors your health and provides suggestions
             for improvement.
