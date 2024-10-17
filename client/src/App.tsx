@@ -2,9 +2,11 @@ import { Link } from "react-router-dom";
 import "./App.css";
 import Background from "./components/Background";
 import useImplicitLogin from "./store/hooks/useImplicitLogin";
+import useUserStore from "./store/hooks/useUserStore";
 
 function App() {
-  const implicitUser = useImplicitLogin();
+  useImplicitLogin();
+  const user = useUserStore();
   return (
     <>
       <Background color="black" className="pt-16">
@@ -13,7 +15,7 @@ function App() {
             AI Personal Health Assistant
           </h1>
           <h1 className=" text-offwhite text-3xl">
-            Implicit User: {implicitUser}
+            Implicit User: {user.username} {user.firstName}
           </h1>
           <p className=" text-surface75 text-xl">
             An AI assistant that monitors your health and provides suggestions

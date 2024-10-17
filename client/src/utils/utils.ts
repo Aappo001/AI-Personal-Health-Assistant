@@ -1,4 +1,5 @@
-import { RegisterBody, ServerResponse, ErrorResponse } from "../types";
+import {  implicitLoginSchema,  } from "../schemas";
+import { RegisterBody, ServerResponse, ErrorResponse, PublicUserState } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
@@ -18,7 +19,7 @@ export async function RegisterUser(
   return result;
 }
 
-export const loginImplicitly = async (): Promise<string | undefined> => {
+export const loginImplicitly = async (): Promise<PublicUserState | undefined> => {
   const jwt = getJwt()
   if(!jwt) return
   const response = await fetch("http://localhost:3000/api/login", {
@@ -33,10 +34,14 @@ export const loginImplicitly = async (): Promise<string | undefined> => {
     console.log("Implicit Login Error");
     return
   }
-  console.log("Successful Implicit Login?");
+  const parsedData = implicitLoginSchema.safeParse(data)
+  if(parsedData.error) {
+    console.log(parsedData.error);
+    return
+  }
+  console.log(`Successful Implicit Login: User ${parsedData.data.username}`);
   
-  console.log(data);
-  return "fake user implicit login"
+  return parsedData.data
   
 }
 

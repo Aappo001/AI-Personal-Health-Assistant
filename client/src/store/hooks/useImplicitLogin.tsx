@@ -1,14 +1,23 @@
+import { useEffect } from "react";
 import { loginImplicitly } from "../../utils/utils";
+import useAppDispatch from "./useAppDispatch";
+import { updateUser } from "../userSlice";
 
 export default function useImplicitLogin() {
-  let user = "";
-  loginImplicitly()
-    .then((result) => {
-      if (!result) return;
-      user = result;
-    })
-    .catch((err) => {
-      console.log(`Implicit Login Error: ${err}`);
-    });
-  return user;
+  const dispatch = useAppDispatch();
+
+  useEffect(() => {
+    const login = async () => {
+      try {
+        const user = await loginImplicitly();
+        if (user) {
+          dispatch(updateUser(user));
+        }
+      } catch (err) {
+        console.log(`Implicit Login Error: ${err}`);
+      }
+    };
+
+    login();
+  }, []);
 }
