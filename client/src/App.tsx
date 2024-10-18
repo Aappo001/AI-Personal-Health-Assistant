@@ -26,18 +26,30 @@ function App() {
           </p>
         </div>
         <div className="w-full flex  justify-center items-center mt-16 gap-8">
-          <Link
-            to="/register"
-            className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-lilac hover:text-main-black border-lilac text-lilac m-2 rounded-full leading-relaxed"
-          >
-            Register
-          </Link>
-          <Link
-            to="/login"
-            className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-lilac hover:text-main-black border-lilac text-lilac m-2 rounded-full leading-relaxed"
-          >
-            Login
-          </Link>
+          {user.id !== -1 && (
+            <Link
+              to={`/profile/${user.username}`}
+              className="px-3 py-5 border-2 font-bold w-96 text-center text-2xl transition-colors duration-150 hover:bg-lilac hover:text-main-black border-lilac text-lilac m-2 rounded-full leading-relaxed"
+            >
+              Edit Profile
+            </Link>
+          )}
+          {user.id === -1 && (
+            <>
+              <Link
+                to="/register"
+                className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-lilac hover:text-main-black border-lilac text-lilac m-2 rounded-full leading-relaxed"
+              >
+                Register
+              </Link>
+              <Link
+                to="/login"
+                className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-lilac hover:text-main-black border-lilac text-lilac m-2 rounded-full leading-relaxed"
+              >
+                Login
+              </Link>
+            </>
+          )}
         </div>
         <div className="w-full flex justify-center mt-5">
           <Link

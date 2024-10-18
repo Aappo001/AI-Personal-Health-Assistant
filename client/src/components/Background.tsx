@@ -1,9 +1,13 @@
 interface Props {
-  color: "black" | "offwhite";
+  color?: "black" | "offwhite";
   children: React.ReactNode;
   className?: string;
 }
-export default function Background({ color, children, className }: Props) {
+export default function Background({
+  color = "black",
+  children,
+  className,
+}: Props) {
   return (
     <div
       className={` w-screen h-screen overflow-y-visible ${
