@@ -15,6 +15,19 @@ export type ServerResponse = {
     message: string
 }
 
+export type LoginResponse = {
+    message: string,
+    user: SessionUser
+}
+
 export type ErrorResponse = {
     errorMessage: string
+}
+
+export type SessionUser = {
+    id: number,
+    email: string,
+    firstName: string,
+    lastName: string
+    username: string,
 }

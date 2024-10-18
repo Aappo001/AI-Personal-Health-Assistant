@@ -1,4 +1,5 @@
-import { RegisterBody, ServerResponse, ErrorResponse } from "../types";
+import {  implicitLoginSchema,  } from "../schemas";
+import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
@@ -16,6 +17,32 @@ export async function RegisterUser(
   console.log(response.headers);
   
   return result;
+}
+
+export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
+  const jwt = getJwt()
+  if(!jwt) return
+  const response = await fetch("http://localhost:3000/api/login", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "authorization": `Bearer ${jwt}`
+    },
+  })
+  const data = await response.json()
+  if(!response.ok) {
+    console.log("Implicit Login Error");
+    return
+  }
+  const parsedData = implicitLoginSchema.safeParse(data)
+  if(parsedData.error) {
+    console.log(parsedData.error);
+    return
+  }
+  console.log(`Successful Implicit Login: User ${parsedData.data.username}`);
+  
+  return parsedData.data
+  
 }
 
 const mainColors = [
@@ -42,4 +69,10 @@ export const getJwtFromResponseHeader = (response: Response) => {
 
 export const saveJwtToLocalStorage = (jwt: string) => {
   localStorage.setItem("token", jwt)
+}
+
+export const getJwt = (): string => {
+  const jwt = localStorage.getItem("token")
+  if(!jwt) return ""
+  return jwt
 }

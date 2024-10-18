@@ -45,7 +45,6 @@ export default function Register() {
       } else {
         setError(false);
         setResponseMessage(result.message);
-        dispatch(updateUser(user));
       }
     } catch (error) {
       setResponseMessage("An error occurred. Please try again later.");
