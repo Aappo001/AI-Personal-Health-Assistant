@@ -1,5 +1,5 @@
 import {  implicitLoginSchema,  } from "../schemas";
-import { RegisterBody, ServerResponse, ErrorResponse, PublicUserState } from "../types";
+import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
@@ -19,7 +19,7 @@ export async function RegisterUser(
   return result;
 }
 
-export const loginImplicitly = async (): Promise<PublicUserState | undefined> => {
+export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
   const jwt = getJwt()
   if(!jwt) return
   const response = await fetch("http://localhost:3000/api/login", {

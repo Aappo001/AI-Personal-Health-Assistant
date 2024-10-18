@@ -14,9 +14,9 @@ function App() {
           <h1 className=" text-6xl text-offwhite">
             AI Personal Health Assistant
           </h1>
-          {user && (
+          {user.id !== -1 && (
             <h1 className=" text-offwhite text-3xl underline">
-              Welcome back, {user.username}
+              Welcome back, {user.username} with email {user.email}
             </h1>
           )}
 

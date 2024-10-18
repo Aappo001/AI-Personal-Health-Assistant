@@ -17,15 +17,16 @@ export type ServerResponse = {
 
 export type LoginResponse = {
     message: string,
-    user: PublicUserState
+    user: SessionUser
 }
 
 export type ErrorResponse = {
     errorMessage: string
 }
 
-export type PublicUserState = {
-    id: number
+export type SessionUser = {
+    id: number,
+    email: string,
     firstName: string,
     lastName: string
     username: string,

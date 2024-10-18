@@ -8,16 +8,17 @@ export const registerBodySchema = z.object({
   password: z.string().min(1),
 });
 
-export const publicUserSchema =  z.object({
+export const sessionUserSchema =  z.object({
     id: z.number(),
+    email: z.string(),
     firstName: z.string(),
     lastName: z.string(),
     username: z.string(),
   });
 
-export const implicitLoginSchema = publicUserSchema
+export const implicitLoginSchema = sessionUserSchema
 
 export const loginResponseSchema = z.object({
   message: z.string(),
-  user: publicUserSchema,
+  user: sessionUserSchema,
 });
