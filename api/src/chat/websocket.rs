@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
+use validator::ValidateRequired;
 
 use crate::{
     error::{AppError, ErrorResponse},
@@ -87,6 +88,7 @@ pub enum SocketResponse {
         sender_id: i64,
         receiver_id: i64,
         created_at: chrono::NaiveDateTime,
+        status: FriendRequestStatus,
     },
     /// Error to inform the client
     Error(ErrorResponse),
@@ -97,6 +99,13 @@ pub enum SocketResponse {
     ReadEvent(ReadEvent),
     /// Close the connection
     Close,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub enum FriendRequestStatus {
+    Pending,
+    Accepted,
+    Rejected,
 }
 
 /// The types of requests that can be made to the websocket
@@ -110,8 +119,18 @@ enum SocketRequest {
     /// Edit a message in the conversation
     /// The i64 is the id of the message to delete
     DeleteMessage(i64),
-    /// Send a friend request to the user
-    SendFriendRequest(i64),
+    /// Send, accept, reject, or revoke a friend request
+    // Put all the friend request stuff in one enum variant
+    // so its easier to handle on the frontend
+    SendFriendRequest {
+        /// The id of the user involved in the friend request
+        /// This might be the sender or receiver depending on the action
+        other_user_id: i64,
+        /// The action to take on the friend request
+        /// Send or accept a friend request if true
+        /// Reject or revoke a friend request if false
+        accept: bool,
+    },
     /// Invite a user to the conversation
     InviteUser(InviteData),
     /// Message has been read in given conversation
@@ -362,18 +381,24 @@ async fn delete_message(
     Ok(())
 }
 
-async fn send_friend_request(
+/// Handle friend requests
+/// If accept is true, the friend request will be accepted if it exists
+/// or sent if it does not
+///
+/// If accept is false, the friend request will be rejected or revoked
+async fn handle_friend_request(
     state: &AppState,
-    receiver_id: i64,
+    other_user_id: i64,
+    accept: bool,
     user: &UserToken,
 ) -> Result<(), AppError> {
-    if user.id == receiver_id {
+    if user.id == other_user_id {
         return Err(anyhow!("User cannot send friend request to themselves").into());
     }
 
     // Check that the users are not already friends
-    let user1_id = user.id.min(receiver_id);
-    let user2_id = user.id.max(receiver_id);
+    let user1_id = user.id.min(other_user_id);
+    let user2_id = user.id.max(other_user_id);
     sqlx::query!(
         "SELECT user1_id FROM friendships WHERE user1_id = ? and user2_id = ?",
         user1_id,
@@ -382,29 +407,102 @@ async fn send_friend_request(
     .fetch_optional(&state.pool)
     .await?;
 
-    // Check that a friend request does not already exist between the either user
-    if sqlx::query!(
-        "SELECT sender_id FROM friend_requests WHERE (sender_id = ? or receiver_id = ?) and (sender_id = ? or receiver_id = ?)",
-        user.id,
-        user.id,
-        receiver_id,
-        receiver_id
-    )
+    let friend_request = if accept {
+        // Check that the sender does not already have an outgoing friend request to
+        // the recipient
+        if sqlx::query!(
+            "SELECT sender_id FROM friend_requests WHERE sender_id = ? AND receiver_id = ?",
+            user.id,
+            other_user_id
+        )
         .fetch_optional(&state.pool)
         .await?
-        .is_none()
-    {
-        return Err(anyhow!("Friend request already exists").into())
-    }
+        .is_some()
+        {
+            return Err(anyhow!("Friend request already exists").into());
+        }
+        // Everything is good so check if we are accepting an existing incoming
+        // friend request or sending a new outgoing friend request
+        if sqlx::query!(
+            "SELECT sender_id FROM friend_requests WHERE sender_id = ? AND receiver_id = ?",
+            other_user_id,
+            user.id
+        )
+        .fetch_optional(&state.pool)
+        .await?
+        .is_some()
+        {
+            // An incoming friend request already exists so accept it
+            // Create a transaction to ensure that the friend request is accepted
+            // and the friend request is deleted from the database at the same time
+            let mut tx = state.pool.begin().await?;
 
-    // Everything is good so insert the friend request into the database
-    let friend_request = sqlx::query_as!(SocketResponse::FriendRequest, "INSERT INTO friend_requests (sender_id, receiver_id) VALUES (?, ?) RETURNING *", user.id, receiver_id)
-        .fetch_one(&state.pool)
-        .await?;
+            let friendship = sqlx::query!(
+                "INSERT INTO friendships (user1_id, user2_id) VALUES (?, ?) RETURNING created_at",
+                user1_id,
+                user2_id,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "DELETE FROM friend_requests WHERE sender_id = ? AND receiver_id = ?",
+                other_user_id,
+                user.id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            // Have to make the friend request enum manually
+            // because the table doesn't have a status column
+            // and it doesn't let me add one with select queries
+            SocketResponse::FriendRequest {
+                sender_id: user.id,
+                receiver_id: other_user_id,
+                created_at: friendship.created_at,
+                status: FriendRequestStatus::Accepted,
+            }
+        } else {
+            // A friend request does not exist so send it
+            let friendship = sqlx::query!(
+                "INSERT INTO friend_requests (sender_id, receiver_id) VALUES (?, ?) RETURNING created_at",
+                user.id,
+                other_user_id
+            )
+            .fetch_one(&state.pool)
+            .await?;
+            SocketResponse::FriendRequest {
+                sender_id: user.id,
+                receiver_id: other_user_id,
+                created_at: friendship.created_at,
+                status: FriendRequestStatus::Pending,
+            }
+        }
+    } else {
+        // Friend request was rejected or revoked
+        // so attempt to delete the friend request from the database
+        let Some(friend_request) = sqlx::query!(
+            "DELETE FROM friend_requests WHERE (sender_id = ? or sender_id = ?) AND (receiver_id = ? or receiver_id = ?) RETURNING *",
+            user.id,
+            other_user_id,
+            user.id,
+            other_user_id,
+        )
+            .fetch_optional(&state.pool)
+            .await? else {
+            return Err(anyhow!("Friend request does not exist").into());
+        };
+        SocketResponse::FriendRequest {
+            sender_id: friend_request.sender_id,
+            receiver_id: friend_request.receiver_id,
+            created_at: friend_request.created_at,
+            status: FriendRequestStatus::Rejected,
+        }
+    };
 
     // Only send the friend request over the websocket to the receiver
     // if the receiver is online
-    if let Some(receiver) = state.user_sockets.get(&receiver_id) {
+    if let Some(receiver) = state.user_sockets.get(&other_user_id) {
         receiver.send(friend_request.clone())?;
     }
 
@@ -549,8 +647,11 @@ async fn handle_message(
                     invite.conversation_id = Some(invite_user(&state.pool, &invite, user).await?);
                     broadcast_event(state, SocketResponse::Invite(invite)).await?;
                 }
-                SocketRequest::SendFriendRequest(receiver_id) => {
-                    send_friend_request(state, receiver_id, user).await?;
+                SocketRequest::SendFriendRequest {
+                    other_user_id,
+                    accept,
+                } => {
+                    handle_friend_request(state, other_user_id, accept, user).await?;
                 }
                 SocketRequest::ReadMessage(conversation_id) => {
                     read_event(&state.pool, conversation_id, user).await?;
