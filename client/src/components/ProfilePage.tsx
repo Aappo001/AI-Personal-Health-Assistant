@@ -3,11 +3,10 @@ import useUserStore from "../store/hooks/useUserStore";
 import Background from "./Background";
 import { LoginBody, RegisterBody } from "../types";
 import { getJwt } from "../utils/utils";
-import { useNavigate } from "react-router-dom";
 
 export default function ProfilePage() {
   const userStore = useUserStore();
-  
+
   const [user, setUser] = useState<RegisterBody>({
     firstName: userStore.firstName,
     lastName: userStore.lastName,
@@ -32,7 +31,7 @@ export default function ProfilePage() {
   ) => {
     event.preventDefault();
     try {
-      const response = await fetch("http://localhost:3000/api/users/delete", {
+      const response = await fetch("http://localhost:3000/api/account", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
