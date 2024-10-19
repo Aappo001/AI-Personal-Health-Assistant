@@ -39,13 +39,13 @@ export default function ProfilePage() {
         },
         body: JSON.stringify(deleteUser),
       });
-      const result = await response.text();
-      if (result === "User deleted") {
+      if (response.ok) {
         //using window.location forces a refresh, automatically clearing the redux state
         //might want to change this in the future, but it seems logical for now
         window.location.href = "/";
-      }
-      setError(result);
+      } 
+      const result = await response.json();
+      setError(result.message);
     } catch (err) {
       console.log(`Error occurred when deleting acc: ${err}`);
     }
