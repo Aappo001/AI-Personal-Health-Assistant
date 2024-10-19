@@ -108,6 +108,16 @@ pub enum FriendRequestStatus {
     Rejected,
 }
 
+// The WebSocket API is a bit different than the REST API
+// it works by sending JSON serialized `SocketRequest` enums 
+// to the server and receiving `SocketResponse` enums back
+//  
+// The client will send a message like this to the server
+// ws.send(JSON.stringify({
+//   type: "SendMessage",
+//   message: "Hello, world!",
+//   conversation_id: 1
+// }))
 /// The types of requests that can be made to the websocket
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -116,7 +126,6 @@ enum SocketRequest {
     SendMessage(ChatMessage),
     /// Edit a message in the conversation
     EditMessage(ChatMessage),
-    /// Edit a message in the conversation
     /// The i64 is the id of the message to delete
     DeleteMessage(i64),
     /// Send, accept, reject, or revoke a friend request
@@ -156,7 +165,6 @@ struct RequestMessage {
 
 /// Handles incoming websocket connections
 // TODO: Implement querying AI model for responses
-// TODO: Refactor this function so the receive and send tasks are separate functions
 #[instrument]
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
