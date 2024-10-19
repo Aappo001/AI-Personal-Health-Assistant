@@ -2,7 +2,6 @@ use std::ops::ControlFlow;
 
 use anyhow::{anyhow, Result};
 use axum::{
-    body::Body,
     extract::{Path, State},
     http::{
         header::{self, AUTHORIZATION},
@@ -13,6 +12,7 @@ use axum::{
 };
 use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use macros::response;
 use password_auth::VerifyError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -99,9 +99,15 @@ pub async fn create_user(
     .await?
     {
         if existing_user.username == user_data.username {
-            return Ok((StatusCode::CONFLICT, "Username already exists").into_response());
+            return Err(AppError::UserError((
+                StatusCode::CONFLICT,
+                "Username already exists".into(),
+            )));
         } else {
-            return Ok((StatusCode::CONFLICT, "Email already in use").into_response());
+            return Err(AppError::UserError((
+                StatusCode::CONFLICT,
+                "Email already in use".into(),
+            )));
         }
     }
     let hashed_password = password_auth::generate_hash(&user_data.password);
@@ -203,13 +209,19 @@ pub async fn authenticate_user(
             .fetch_optional(&pool)
             .await?
     else {
-        return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+        return Err(AppError::UserError((
+            StatusCode::UNAUTHORIZED,
+            "Invalid username or password".into(),
+        )));
     };
 
     match password_auth::verify_password(&user_data.password, &existing_user.password_hash) {
         Ok(_) => (),
         Err(VerifyError::PasswordInvalid) => {
-            return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+            return Err(AppError::UserError((
+                StatusCode::UNAUTHORIZED,
+                "Invalid username or password".into(),
+            )));
         }
         Err(e) => {
             return Err(e.into());
@@ -241,7 +253,7 @@ pub async fn authenticate_user(
         [(header::AUTHORIZATION, format!("Bearer {}", token))],
         // Don't need to set the content-type header since axum does
         // it for us when we wrap the body in a `Json` struct
-        Json(json!({"message": "Successfully authenticated", "user": serde_json::to_string(&user).unwrap() })),
+        Json(response!("Successfully authenticated", user)),
     )
         .into_response())
 }
@@ -273,11 +285,7 @@ pub async fn get_user_from_token(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((
-            StatusCode::NOT_FOUND,
-            Json(json!({ "message": "User not found" })),
-        )
-            .into_response());
+        return Err(AppError::UserError((StatusCode::NOT_FOUND, "User not found".into())));
     };
     Ok((StatusCode::OK, Json(user)).into_response())
 }
@@ -327,11 +335,10 @@ pub async fn get_user_by_id(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((
+        return Err(AppError::UserError((
             StatusCode::NOT_FOUND,
-            Json(json!({ "message": "User not found" })),
-        )
-            .into_response());
+            "User not found".into(),
+        )));
     };
 
     Ok((StatusCode::OK, Json(user)).into_response())
@@ -349,11 +356,10 @@ pub async fn get_user_by_username(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((
+        return Err(AppError::UserError((
             StatusCode::NOT_FOUND,
-            Json(json!({ "message": "User not found" })),
-        )
-            .into_response());
+            "User not found".into(),
+        )));
     };
 
     Ok((StatusCode::OK, Json(user)).into_response())
@@ -372,16 +378,22 @@ pub async fn delete_user(
         .fetch_optional(&pool)
         .await?
     else {
-        return Ok((StatusCode::NOT_FOUND, "User does not exist").into_response());
+        return Err(AppError::UserError((
+            StatusCode::NOT_FOUND,
+            "User does not exist".into(),
+        )));
     };
 
     if password_auth::verify_password(&user_data.password, &stored_user.password_hash).is_err() {
-        return Ok((StatusCode::UNAUTHORIZED, "Invalid password").into_response());
+        return Err(AppError::UserError((
+            StatusCode::UNAUTHORIZED,
+            "Invalid password".into(),
+        )));
     }
 
     sqlx::query!("DELETE FROM users WHERE id = ?", user.id)
         .execute(&pool)
         .await?;
 
-    Ok((StatusCode::OK, "User deleted").into_response())
+    Ok((StatusCode::OK, Json(response!("User deleted"))).into_response())
 }

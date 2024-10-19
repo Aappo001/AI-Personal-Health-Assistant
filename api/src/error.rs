@@ -23,6 +23,7 @@ pub enum AppError {
     SerdeError(serde_json::Error),
     ValidationError(Vec<AppValidationError>),
     AuthError(anyhow::Error),
+    UserError((StatusCode, Box<str>)),
     Generic(anyhow::Error),
 }
 
@@ -106,7 +107,8 @@ impl IntoResponse for AppError {
             AppError::JsonRejection(_)
             | AppError::AuthError(_)
             | AppError::SerdeError(_)
-            | AppError::ValidationError(_) => warn!("{}", self),
+            | AppError::ValidationError(_)
+            | AppError::UserError(_) => warn!("{}", self),
             AppError::SqlxError(_) | AppError::Generic(_) => error!("{}", self),
         }
         let (status, message) = match &self {
@@ -116,6 +118,7 @@ impl IntoResponse for AppError {
             }
             AppError::SerdeError(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             AppError::AuthError(e) => (StatusCode::UNAUTHORIZED, e.to_string()),
+            AppError::UserError((code, e)) => (*code, e.to_string()),
             AppError::SqlxError(_) | AppError::Generic(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal Server Error".to_owned(),
@@ -143,6 +146,7 @@ impl AppError {
             AppError::AuthError(_) => "AuthError".to_owned(),
             AppError::SqlxError(_) => "SqlxError".to_owned(),
             AppError::Generic(_) => "Generic".to_owned(),
+            AppError::UserError(_) => "User".to_owned(),
         }
     }
 }
@@ -157,6 +161,7 @@ impl Display for AppError {
             AppError::AuthError(e) => write!(f, "{}", e),
             AppError::SqlxError(e) => write!(f, "{}", e),
             AppError::Generic(err) => write!(f, "{}", err),
+            AppError::UserError((_, err)) => write!(f, "{}", err),
         }
     }
 }
