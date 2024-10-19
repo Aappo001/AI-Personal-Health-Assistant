@@ -82,7 +82,6 @@ export default function ProfilePage() {
                 name="lastName"
                 placeholder="Last Name"
                 onChange={handleChange}
-                required
                 className="text-xl w-full mt-8 pr-4 py-2 border-b-[1px] placeholder:text-surface75 focus:outline-none transition-colors duration-200 border-b-offwhite focus:border-b-main-blue bg-main-black text-offwhite"
               />
               <input

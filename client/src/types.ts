@@ -1,6 +1,6 @@
 export type RegisterBody = {
     firstName: string,
-    lastName: string
+    lastName: string | null | undefined,
     username: string,
     email: string,
     password: string
@@ -28,7 +28,7 @@ export type SessionUser = {
     id: number,
     email: string,
     firstName: string,
-    lastName: string
+    lastName: string | null | undefined,
     username: string,
 }
 
