@@ -22,6 +22,11 @@ export default {
         "main-grey": "#363131"
 
       },
+      fontFamily: {
+        "bebas": ["Bebas Neue, sans-serif"],
+        "protest": ["Protest Strike, sans-serif"],
+        "kanit": ["Kanit, sans-serif"]
+      }
     },
 
 
