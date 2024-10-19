@@ -22,3 +22,8 @@ export const loginResponseSchema = z.object({
   message: z.string(),
   user: sessionUserSchema,
 });
+
+export const appErrorSchema = z.object({
+  message: z.string(),
+  type: z.string()
+})

@@ -14,7 +14,6 @@ export async function RegisterUser(
 
   const result: ServerResponse = await response.json();
   if (!response.ok) return { errorMessage: result.message };
-  console.log(response.headers);
   
   return result;
 }
