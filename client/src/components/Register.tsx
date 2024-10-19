@@ -2,11 +2,8 @@ import { useState } from "react";
 import { RegisterBody } from "../types";
 import Background from "./Background";
 import { RegisterUser } from "../utils/utils";
-import useAppDispatch from "../store/hooks/useAppDispatch";
-import { updateUser } from "../store/userSlice";
 
 export default function Register() {
-  const dispatch = useAppDispatch();
   const [user, setUser] = useState<RegisterBody>({
     firstName: "",
     lastName: "",

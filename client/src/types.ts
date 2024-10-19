@@ -31,3 +31,8 @@ export type SessionUser = {
     lastName: string
     username: string,
 }
+
+export type ServerAppError = {
+    message: string,
+    type: string
+}
