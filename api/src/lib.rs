@@ -108,7 +108,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/login", get(get_user_from_token))
         .route("/users/id/:id", get(get_user_by_id))
         .route("/users/username/:username", get(get_user_by_username))
-        .route("/users/delete", delete(delete_user))
+        .route("/account", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
