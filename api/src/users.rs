@@ -368,19 +368,18 @@ pub async fn delete_user(
         return Err(AppError::AuthError(anyhow!("Token does not match user")));
     }
 
-    if sqlx::query!(
-        "SELECT id FROM users where id = ? and username = ?",
-        user.id,
-        user.username
-    )
-    .fetch_optional(&pool)
-    .await?
-    .is_none()
-    {
+    let Some(stored_user) = sqlx::query!("SELECT password_hash FROM users WHERE id = ?", user.id)
+        .fetch_optional(&pool)
+        .await?
+    else {
         return Ok((StatusCode::NOT_FOUND, "User does not exist").into_response());
+    };
+
+    if password_auth::verify_password(&user_data.password, &stored_user.password_hash).is_err() {
+        return Ok((StatusCode::UNAUTHORIZED, "Invalid password").into_response());
     }
 
-    sqlx::query!("DELETE FROM users where id = ?", user.id)
+    sqlx::query!("DELETE FROM users WHERE id = ?", user.id)
         .execute(&pool)
         .await?;
 
