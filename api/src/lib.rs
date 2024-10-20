@@ -28,7 +28,7 @@ use axum::{
 };
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
-    services::ServeFile,
+    services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
 
@@ -117,7 +117,9 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 
     let app = Router::new()
         .nest("/api", api)
-        .nest_service("/", ServeFile::new("../client/dist/index.html"))
+        .fallback_service(ServeDir::new("../client/dist")
+                .fallback(ServeFile::new("../client/dist/index.html"))
+            )
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
