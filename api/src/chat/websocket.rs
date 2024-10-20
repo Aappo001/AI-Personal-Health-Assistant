@@ -116,7 +116,7 @@ pub enum FriendRequestStatus {
 // ws.send(JSON.stringify({
 //   type: "SendMessage",
 //   message: "Hello, world!",
-//   conversation_id: 1
+//   conversationId: 1
 // }))
 /// The types of requests that can be made to the websocket
 #[derive(Serialize, Deserialize)]
