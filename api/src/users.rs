@@ -44,7 +44,7 @@ pub struct CreateUser {
             max = 128,
             code = "Password must be between 8 and 128 characters"
         ),
-        custom(function = "check_password")
+        custom(function = "validate_password")
     )]
     pub password: String,
     #[validate(
@@ -53,7 +53,7 @@ pub struct CreateUser {
             max = 20,
             code = "Username must be between 3 and 20 characters"
         ),
-        custom(function = "check_username")
+        custom(function = "validate_username")
     )]
     pub username: String,
 }
@@ -128,7 +128,54 @@ pub async fn create_user(
         .into_response())
 }
 
-pub fn check_username(username: &str) -> Result<(), ValidationError> {
+pub async fn check_username(
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+) -> Result<Response, AppError> {
+    if username.len() < 3 || username.len() > 20 || validate_username(&username).is_err() {
+        return Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "Invalid username".into(),
+        )));
+    }
+    match sqlx::query!("SELECT username FROM users WHERE username = ?", username)
+        .fetch_optional(&pool)
+        .await?
+    {
+        Some(_) => Ok((
+            StatusCode::CONFLICT,
+            Json(response!("Username is already in use")),
+        )
+            .into_response()),
+        None => Ok(StatusCode::OK.into_response()),
+    }
+}
+
+pub async fn check_email(
+    State(pool): State<SqlitePool>,
+    Path(email): Path<String>,
+) -> Result<Response, AppError> {
+    let email_regex = regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").unwrap();
+    if !email_regex.is_match(&email) {
+        return Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "Invalid email".into(),
+        )));
+    }
+    match sqlx::query!("SELECT email FROM users WHERE email = ?", email)
+        .fetch_optional(&pool)
+        .await?
+    {
+        Some(_) => Ok((
+            StatusCode::CONFLICT,
+            Json(response!("Email is already in use")),
+        )
+            .into_response()),
+        None => Ok(StatusCode::OK.into_response()),
+    }
+}
+
+pub fn validate_username(username: &str) -> Result<(), ValidationError> {
     match username
         .chars()
         .try_fold((0, 0), |(alphanumeric, underscore), c| {
@@ -157,7 +204,7 @@ pub fn check_username(username: &str) -> Result<(), ValidationError> {
 }
 
 /// Verify that the password only contains ASCII characters
-fn check_password(password: &str) -> Result<(), ValidationError> {
+fn validate_password(password: &str) -> Result<(), ValidationError> {
     if !password.is_ascii() {
         Err(ValidationError::new(
             r#"must only contain alphanumeric characters and ASCII symbols"#,
@@ -176,7 +223,7 @@ pub struct LoginData {
             max = 20,
             code = "Username must be between 3 and 20 characters"
         ),
-        custom(function = "check_username")
+        custom(function = "validate_username")
     )]
     pub username: String,
     #[validate(
@@ -185,7 +232,7 @@ pub struct LoginData {
             max = 128,
             code = "Password must be between 8 and 128 characters"
         ),
-        custom(function = "check_password")
+        custom(function = "validate_password")
     )]
     pub password: String,
 }
@@ -285,7 +332,10 @@ pub async fn get_user_from_token(
     .fetch_optional(&pool)
     .await?
     else {
-        return Err(AppError::UserError((StatusCode::NOT_FOUND, "User not found".into())));
+        return Err(AppError::UserError((
+            StatusCode::NOT_FOUND,
+            "User not found".into(),
+        )));
     };
     Ok((StatusCode::OK, Json(user)).into_response())
 }
