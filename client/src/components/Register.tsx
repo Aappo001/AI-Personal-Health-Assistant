@@ -6,7 +6,7 @@ import { RegisterUser } from "../utils/utils";
 export default function Register() {
   const [user, setUser] = useState<RegisterBody>({
     firstName: "",
-    lastName: "",
+    lastName: null,
     username: "",
     email: "",
     password: "",
@@ -15,7 +15,13 @@ export default function Register() {
   const [error, setError] = useState(false);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setUser({ ...user, [event.target.name]: event.target.value });
+    switch (event.target.name) {
+      case "lastName":
+      setUser({ ...user, [event.target.name]: event.target.value ? event.target.value : null });
+      break;
+      default:
+      setUser({ ...user, [event.target.name]: event.target.value });
+    }
   };
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
@@ -26,10 +32,9 @@ export default function Register() {
       !user.username ||
       !user.password ||
       !user.firstName ||
-      !user.lastName ||
       !user.email
     ) {
-      setResponseMessage("Please fill in all fields.");
+      setResponseMessage("Please fill in required fields.");
       setError(true);
       return;
     }
@@ -79,11 +84,10 @@ export default function Register() {
               />
               <input
                 type="text"
-                value={user.lastName}
+                value={user.lastName ?? ""}
                 name="lastName"
                 onChange={handleChange}
                 placeholder="Last Name"
-                required
                 className="w-full mt-8 pr-4 py-2 border-b-[1px] placeholder:text-surface75 focus:outline-none transition-colors duration-200 border-b-offwhite focus:border-b-lilac bg-main-black text-offwhite"
               />
               <input
