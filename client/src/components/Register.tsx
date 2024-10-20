@@ -14,8 +14,27 @@ export default function Register() {
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     setUser({ ...user, [event.target.name]: event.target.value });
+    if ((event.target.name === "username" || event.target.name === "email") && event.target.value) {
+      try {
+        const response = await fetch(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`, {
+          method: "GET",
+        });
+
+        if (!response.ok) {
+          let error = await response.json();
+          setResponseMessage(error.message);
+          setError(true);
+        } else {
+          setResponseMessage(`Valid ${event.target.name}`);
+          setError(false);
+        }
+      } catch (error) {
+        setResponseMessage("An error occurred. Please try again later.");
+        setError(true);
+      }
+    }
   };
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
@@ -114,9 +133,8 @@ export default function Register() {
           </form>
           {responseMessage && (
             <div
-              className={`mt-4 text-xl ${
-                error ? "text-red-500" : "text-green-500"
-              }`}
+              className={`mt-4 text-xl ${error ? "text-red-500" : "text-green-500"
+                }`}
             >
               {responseMessage}
             </div>
