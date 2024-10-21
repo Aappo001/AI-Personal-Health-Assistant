@@ -36,7 +36,7 @@ use chat::{
     connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
 };
 use cli::Args;
-use dashmap::DashMap;
+use scc::HashMap;
 use sqlx::SqlitePool;
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
@@ -58,10 +58,10 @@ pub const PROTOCOL: &str = "sqlite://";
 pub struct AppState {
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
-    user_sockets: Arc<DashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
+    user_sockets: Arc<HashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
     /// This is a map that keeps track of how many connections each user has. We use this to
     /// determine when we should remove the user from the `user_sockets` map.
-    user_connections: Arc<DashMap<i64, usize>>,
+    user_connections: Arc<HashMap<i64, usize>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
@@ -70,8 +70,8 @@ pub struct AppState {
 impl AppState {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
-            user_sockets: Arc::new(DashMap::new()),
-            user_connections: Arc::new(DashMap::new()),
+            user_sockets: Arc::new(HashMap::new()),
+            user_connections: Arc::new(HashMap::new()),
             pool,
         }
     }

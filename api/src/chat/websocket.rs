@@ -172,18 +172,18 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     // Increase the number of connections the user has
     let mut user_connections = *state
         .user_connections
-        .entry(user.id)
+        .entry_async(user.id)
+        .await
         .and_modify(|entry| *entry += 1)
-        .or_insert(1)
-        .value();
+        .or_insert(1);
 
     // This is the first connection the user has, so create a broadcast channel to start sending
     if user_connections == 1 {
         let (tx, _) = broadcast::channel(10);
-        state.user_sockets.insert(user.id, tx);
+        let _ = state.user_sockets.insert_async(user.id, tx).await;
     }
 
-    let channel = state.user_sockets.get(&user.id).unwrap();
+    let channel = state.user_sockets.read_async(&user.id, |_, v| v.clone()).await.unwrap();
 
     let mut rx = channel.subscribe();
     let tx = channel.clone();
@@ -237,16 +237,17 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     };
 
     // Decrease the number of connections the user has
-    state
+    let _ = state
         .user_connections
-        .entry(user.id)
+        .entry_async(user.id)
+        .await
         .and_modify(|entry| *entry -= 1);
-    user_connections = *state.user_connections.get(&user.id).unwrap().value();
+    user_connections = *state.user_connections.get_async(&user.id).await.unwrap();
     // Remove the user from the connection once all the tasks are
     // complete and all user devices have disconnected
     if user_connections == 0 {
-        state.user_connections.remove(&user.id);
-        state.user_sockets.remove(&user.id);
+        state.user_connections.remove_async(&user.id).await;
+        state.user_sockets.remove_async(&user.id).await;
     }
 }
 

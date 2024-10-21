@@ -28,7 +28,7 @@ axum-macros = "0.4.2"
 base64 = "0.22.1"
 chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.17", features = ["derive"] }
-dashmap = "6.1.0"
+scc = "2.2.2"
 dirs = "5.0.1"
 dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
