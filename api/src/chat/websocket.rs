@@ -92,13 +92,9 @@ pub enum SocketResponse {
     },
     /// Error to inform the client
     Error(ErrorResponse),
-    /// Pong to the client
-    Pong(Vec<u8>),
     /// Read event to inform the client that messages before a given timestamp
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
-    /// Close the connection
-    Close,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -208,16 +204,9 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         // Keep checking for incoming messages and sending messages to the client accordingly
         // until the connection is closed
         while let Ok(msg) = rx.recv().await {
-            match send_message(&mut sender, msg).await {
-                // The message was sent successfully to the client, continue
-                Ok(Some(())) => (),
-                // The connection was closed, break the loop
-                Ok(None) => break,
-                // There was an error sending the message, but the connection is still open
-                Err(e) => {
+            if let Err(e) = send_message(&mut sender, msg).await {
                     error!("Error sending message: {}", e);
                     sender.send(Message::Text(e.to_string())).await.unwrap();
-                }
             }
         }
     });
@@ -691,13 +680,9 @@ async fn handle_message(
         Message::Binary(_) => {
             //TODO
         }
-        Message::Ping(payload) => {
-            tx.send(SocketResponse::Pong(payload))?;
-        }
-        Message::Close(_) => {
-            tx.send(SocketResponse::Close)?;
-        }
-        _ => (),
+        // We do not need to handle ping or close messages
+        // because tokio_tungstenite will handle them for us
+        Message::Ping(_) | Message::Close(_) | _ => (),
     }
     Ok(())
 }
@@ -738,18 +723,11 @@ async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), Ap
 async fn send_message(
     sender: &mut SplitSink<WebSocket, Message>,
     msg: SocketResponse,
-) -> Result<Option<()>, AppError> {
+) -> Result<(), AppError> {
     // *SAFETY* The `serde_json::to_string` function can safely be unwrapped because the `SocketResponse` enum
     // is serializable and will not panic
     match msg {
-        SocketResponse::Pong(payload) => {
-            sender.send(Message::Pong(payload)).await?;
-        }
-        SocketResponse::Close => {
-            sender.close().await?;
-            return Ok(None);
-        }
-        // All other responses should be serialized to JSON
+        // All responses should be serialized to JSON
         // and sent as Text
         response => {
             sender
@@ -757,5 +735,5 @@ async fn send_message(
                 .await?;
         }
     }
-    Ok(Some(()))
+    Ok(())
 }
