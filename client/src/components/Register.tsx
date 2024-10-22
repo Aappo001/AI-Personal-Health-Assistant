@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { RegisterBody } from "../types";
 import Background from "./Background";
+import axios from "axios";
 import { RegisterUser, debounce } from "../utils/utils";
 
 export default function Register() {
@@ -14,18 +15,15 @@ export default function Register() {
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
-
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     setUser({ ...user, [event.target.name]: event.target.value });
     debounce(async (event: React.ChangeEvent<HTMLInputElement>) => {
       if ((event.target.name === "username" || event.target.name === "email") && event.target.value) {
         try {
-          const response = await fetch(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`, {
-            method: "GET",
-          });
+          const response = await axios.get(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
 
-          if (!response.ok) {
-            let error = await response.json();
+          if (response.status !== 200) {
+            let error = response.data; // Update to handle the Axios response
             setResponseMessage(error.message);
             setError(true);
           } else {
@@ -74,8 +72,8 @@ export default function Register() {
   return (
     <Background color="black">
       <div className="w-full h-full flex flex-col justify-center items-center">
-        <div className=" border-2 border-offwhite px-4 py-4 flex flex-col items-center justify-evenly gap-4 w-3/12 h-4/5 rounded:sm">
-          <p className={` text-offwhite text-6xl font-bebas`}>Register</p>
+        <div className="border-2 border-offwhite px-4 py-4 flex flex-col items-center justify-evenly gap-4 w-3/12 h-4/5 rounded:sm">
+          <p className={`text-offwhite text-6xl font-bebas`}>Register</p>
           <form
             className="flex flex-col justify-center items-center gap-9 w-5/6"
             onSubmit={handleSubmit}

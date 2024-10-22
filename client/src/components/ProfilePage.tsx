@@ -3,6 +3,7 @@ import useUserStore from "../store/hooks/useUserStore";
 import Background from "./Background";
 import { LoginBody, RegisterBody } from "../types";
 import { getJwt } from "../utils/utils";
+import axios from "axios"; 
 
 export default function ProfilePage() {
   const userStore = useUserStore();
@@ -31,23 +32,22 @@ export default function ProfilePage() {
   ) => {
     event.preventDefault();
     try {
-      const response = await fetch("http://localhost:3000/api/account", {
-        method: "DELETE",
+      const response = await axios.delete("http://localhost:3000/api/account", {
         headers: {
           "Content-Type": "application/json",
-          authorization: `Bearer ${getJwt()}`,
+          Authorization: `Bearer ${getJwt()}`, 
         },
-        body: JSON.stringify(deleteUser),
+        data: deleteUser, 
       });
-      const result = await response.text();
-      if (result === "User deleted") {
-        //using window.location forces a refresh, automatically clearing the redux state
-        //might want to change this in the future, but it seems logical for now
+
+      if (response.data.message === "User deleted") {
         window.location.href = "/";
+      } else {
+        setError(response.data.message); 
       }
-      setError(result);
     } catch (err) {
-      console.log(`Error occurred when deleting acc: ${err}`);
+      console.error(`Error occurred when deleting account: ${err}`);
+      setError("An error occurred. Please try again later.");
     }
   };
 
