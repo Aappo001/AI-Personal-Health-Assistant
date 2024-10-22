@@ -105,9 +105,9 @@ pub enum FriendRequestStatus {
 }
 
 // The WebSocket API is a bit different than the REST API
-// it works by sending JSON serialized `SocketRequest` enums 
+// it works by sending JSON serialized `SocketRequest` enums
 // to the server and receiving `SocketResponse` enums back
-//  
+//
 // The client will send a message like this to the server
 // ws.send(JSON.stringify({
 //   type: "SendMessage",
@@ -191,7 +191,11 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         let _ = state.user_sockets.insert_async(user.id, tx).await;
     }
 
-    let channel = state.user_sockets.read_async(&user.id, |_, v| v.clone()).await.unwrap();
+    let channel = state
+        .user_sockets
+        .read_async(&user.id, |_, v| v.clone())
+        .await
+        .unwrap();
 
     let mut rx = channel.subscribe();
     let tx = channel.clone();
@@ -205,8 +209,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         // until the connection is closed
         while let Ok(msg) = rx.recv().await {
             if let Err(e) = send_message(&mut sender, msg).await {
-                    error!("Error sending message: {}", e);
-                    sender.send(Message::Text(e.to_string())).await.unwrap();
+                error!("Error sending message: {}", e);
+                sender.send(Message::Text(e.to_string())).await.unwrap();
             }
         }
     });
@@ -691,8 +695,7 @@ async fn handle_message(
 /// Events include messages, edits, and deletes, ect.
 async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
-        SocketResponse::Message(chat_msg) => chat_msg
-            .conversation_id,
+        SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
         SocketResponse::DeleteMessage(id) => *id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::Invite(invite) => invite
