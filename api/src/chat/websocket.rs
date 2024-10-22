@@ -119,13 +119,13 @@ pub enum FriendRequestStatus {
 //   conversationId: 1
 // }))
 /// The types of requests that can be made to the websocket
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(tag = "type")]
 enum SocketRequest {
     /// Send a message to the conversation
-    SendMessage(ChatMessage),
+    SendMessage(SendMessage),
     /// Edit a message in the conversation
-    EditMessage(ChatMessage),
+    EditMessage(EditMessage),
     /// The i64 is the id of the message to delete
     DeleteMessage(i64),
     /// Send, accept, reject, or revoke a friend request
@@ -149,6 +149,18 @@ enum SocketRequest {
     /// Requst the previous messages in the conversation
     /// The i64 is the id of the last message the client received
     RequestMessages(RequestMessage),
+}
+
+#[derive(Deserialize)]
+pub struct SendMessage {
+    pub conversation_id: Option<i64>,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+struct EditMessage {
+    id: i64,
+    message: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -291,7 +303,7 @@ async fn request_messages(
 /// Save a message to the database
 async fn save_message(
     pool: &SqlitePool,
-    message: &ChatMessage,
+    message: &SendMessage,
     user: &UserToken,
 ) -> Result<ChatMessage, AppError> {
     // If the conversation_id is None, this is the first message in a conversation
@@ -326,16 +338,11 @@ async fn save_message(
 /// Edit message in the database
 async fn edit_message(
     pool: &SqlitePool,
-    message: &ChatMessage,
+    message: &EditMessage,
     user: &UserToken,
 ) -> Result<ChatMessage, AppError> {
-    // Check if the message id is present
-    let Some(message_id) = message.id else {
-        return Err(anyhow!("Message id is required to edit message").into());
-    };
-
     // Check if the message exists in the database
-    let Some(message_user) = sqlx::query!("SELECT user_id FROM messages WHERE id = ?", message_id)
+    let Some(message_user) = sqlx::query!("SELECT user_id FROM messages WHERE id = ?", message.id)
         .fetch_optional(pool)
         .await?
     else {
@@ -356,7 +363,7 @@ async fn edit_message(
         "UPDATE messages SET message = ?, modified_at = ? WHERE id = ? RETURNING *",
         message.message,
         now,
-        message_id
+        message.id
     )
     .fetch_one(pool)
     .await?)
@@ -380,7 +387,7 @@ async fn delete_message(
         return Err(anyhow!("Message not found").into());
     };
     // Check if the user has permission to delete the message
-    if message.user_id.expect("user id should be set in database") != user.id {
+    if message.user_id != user.id {
         return Err(anyhow!("User does not have permission to delete message").into());
     }
     // Delete the message from the database
@@ -700,14 +707,12 @@ async fn handle_message(
 async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg
-            .conversation_id
-            .expect("Conversation id should be set"),
+            .conversation_id,
         SocketResponse::DeleteMessage(id) => *id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::Invite(invite) => invite
             .conversation_id
             .expect("Conversation id should be set"),
-        //
         _ => unreachable!("uuhhh how"),
     };
     let users = sqlx::query!(

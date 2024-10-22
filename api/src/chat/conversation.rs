@@ -19,6 +19,8 @@ use crate::{
     users::UserToken,
 };
 
+use super::SendMessage;
+
 /// A conversation between at least one user and an AI
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +58,7 @@ pub async fn get_user_conversations(
 pub async fn create_conversation_rest(
     State(pool): State<SqlitePool>,
     JwtAuth(user): JwtAuth<UserToken>,
-    AppJson(init_message): AppJson<ChatMessage>,
+    AppJson(init_message): AppJson<SendMessage>,
 ) -> Result<Response, AppError> {
     // Limit the title to 32 characters
     // let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
@@ -71,7 +73,7 @@ pub async fn create_conversation_rest(
 /// Create a conversation between the user and the AI from an initial message
 pub async fn create_conversation(
     pool: &SqlitePool,
-    init_message: &ChatMessage,
+    init_message: &SendMessage,
     user: &UserToken,
 ) -> Result<Conversation, AppError> {
     let title = init_message.message.chars().take(32).collect::<String>();
@@ -124,18 +126,18 @@ pub async fn create_conversation(
 pub struct ChatMessage {
     /// The id of the message
     /// If this is None, the message has not been saved to the database yet
-    pub id: Option<i64>,
+    pub id: i64,
     /// The id of the message
     /// If this is None, this is the first message in the conversation
     /// and a new conversation should be created
-    pub conversation_id: Option<i64>,
+    pub conversation_id: i64,
     pub message: String,
     /// The id of the user who sent the message
     /// This does not need to be sent by the client, it will be set by the server
     /// This will not be None when the message is sent to the client
-    pub user_id: Option<i64>,
-    pub created_at: Option<NaiveDateTime>,
-    pub modified_at: Option<NaiveDateTime>,
+    pub user_id: i64,
+    pub created_at: NaiveDateTime,
+    pub modified_at: NaiveDateTime,
 }
 
 /// Get all the messages in a conversation
