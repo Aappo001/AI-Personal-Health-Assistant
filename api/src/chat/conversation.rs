@@ -187,18 +187,3 @@ pub struct ReadEvent {
     /// The timestamp when the conversation was last read
     pub timestamp: NaiveDateTime,
 }
-
-/// Invite data to a conversation
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct InviteData {
-    pub conversation_id: Option<i64>,
-    /// The user who is inviting the other users
-    pub inviter: i64,
-    /// The users being invited to the conversation
-    pub invitees: Vec<i64>,
-    /// The timestamp when users were invited to the conversation
-    /// This should not be sent by the client, it will be set by the server
-    pub invited_at: Option<NaiveDateTime>,
-}
-

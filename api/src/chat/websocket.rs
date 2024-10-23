@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose, Engine};
+use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -24,7 +25,7 @@ use crate::{
     AppState,
 };
 
-use super::{create_conversation, ChatMessage, InviteData, ReadEvent, StreamMessage};
+use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -85,7 +86,14 @@ pub enum SocketResponse {
     /// Stream data from the AI model
     StreamData(StreamMessage),
     /// Invite to a conversation
-    Invite(InviteData),
+    Invite {
+        /// The id of the conversation the user was invited to
+        conversation_id: i64,
+        /// The id of the inviter
+        inviter: i64,
+        /// When the invite was created
+        invited_at: NaiveDateTime,
+    },
     /// Friend request to be sent to the client
     FriendRequest {
         sender_id: i64,
@@ -139,8 +147,14 @@ enum SocketRequest {
         /// Reject or revoke a friend request if false
         accept: bool,
     },
-    /// Invite a user to the conversation
-    InviteUser(InviteData),
+    /// Invite users to a conversation
+    InviteUsers {
+        /// The id of the conversation to invite the users to
+        /// if this is None, a new conversation will be created
+        conversation_id: Option<i64>,
+        /// The users being invited to the conversation
+        invitees: Box<[i64]>,
+    },
     /// Message has been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
@@ -533,13 +547,11 @@ async fn handle_friend_request(
 /// Returns the conversation id that the users were invited to
 async fn invite_user(
     pool: &SqlitePool,
-    invite: &InviteData,
+    conversation_id: Option<i64>,
+    invitees: &[i64],
     user: &UserToken,
 ) -> Result<i64, AppError> {
-    if user.id != invite.inviter {
-        return Err(anyhow!("User does not have permission to invite users").into());
-    }
-    let conversation_id = match invite.conversation_id {
+    let conversation_id = match conversation_id {
         // Conversation already exists so check if inviter is in it
         Some(conversation_id) => {
             if sqlx::query!(
@@ -577,7 +589,7 @@ async fn invite_user(
     // Begin a transaction to ensure that all the users are added to the converation at the same
     // time
     let mut tx = pool.begin().await?;
-    for invitee in &invite.invitees {
+    for invitee in invitees {
         // Check if the user is already in the conversation
         if sqlx::query!(
             "SELECT conversation_id FROM user_conversations WHERE user_id = ? AND conversation_id = ?",
@@ -604,7 +616,7 @@ async fn invite_user(
             invitee,
             conversation_id
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     }
     tx.commit().await?;
@@ -671,9 +683,21 @@ async fn handle_message(
                     // Broadcast the deleted message to all the users in the conversation
                     broadcast_event(state, SocketResponse::DeleteMessage(message_id)).await?;
                 }
-                SocketRequest::InviteUser(mut invite) => {
-                    invite.conversation_id = Some(invite_user(&state.pool, &invite, user).await?);
-                    broadcast_event(state, SocketResponse::Invite(invite)).await?;
+                SocketRequest::InviteUsers {
+                    invitees,
+                    mut conversation_id,
+                } => {
+                    conversation_id =
+                        Some(invite_user(&state.pool, conversation_id, &invitees, user).await?);
+                    broadcast_event(
+                        state,
+                        SocketResponse::Invite {
+                            conversation_id: conversation_id.unwrap(),
+                            inviter: user.id,
+                            invited_at: chrono::Utc::now().naive_utc(),
+                        },
+                    )
+                    .await?;
                 }
                 SocketRequest::SendFriendRequest {
                     other_user_id,
@@ -718,9 +742,11 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
         SocketResponse::DeleteMessage(id) => *id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
-        SocketResponse::Invite(invite) => invite
-            .conversation_id
-            .expect("Conversation id should be set"),
+        SocketResponse::Invite {
+            inviter: _,
+            conversation_id,
+            invited_at: _,
+        } => *conversation_id,
         _ => unreachable!("uuhhh how"),
     };
     let users = sqlx::query!(
