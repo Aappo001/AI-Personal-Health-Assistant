@@ -135,7 +135,8 @@ pub struct ChatMessage {
     /// The id of the user who sent the message
     /// This does not need to be sent by the client, it will be set by the server
     /// This will not be None when the message is sent to the client
-    pub user_id: i64,
+    pub user_id: Option<i64>,
+    pub ai_model_id: Option<i64>,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,
 }
@@ -161,7 +162,7 @@ pub async fn get_conversation(
     }
     let res = &sqlx::query_as!(
             ChatMessage,
-            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id FROM messages
+            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
             WHERE conversations.id = ? 
             ORDER BY last_message_at DESC"#,

@@ -148,12 +148,15 @@ enum SocketRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendMessage {
     pub conversation_id: Option<i64>,
     pub message: String,
+    pub ai_model_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EditMessage {
     id: i64,
     message: String,
@@ -280,7 +283,7 @@ async fn request_messages(
     let message_id = request.message_num.unwrap_or(i64::MAX);
     Ok(sqlx::query_as!(
         ChatMessage,
-        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id FROM messages
+        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
         WHERE conversations.id = ? AND messages.id < ?
         ORDER BY last_message_at DESC
@@ -343,7 +346,7 @@ async fn edit_message(
     };
 
     // Check if the user has permission to edit the message
-    if message_user.user_id != user.id {
+    if message_user.user_id != Some(user.id) {
         return Err(anyhow!("User does not have permission to edit message").into());
     }
 
@@ -380,7 +383,7 @@ async fn delete_message(
         return Err(anyhow!("Message not found").into());
     };
     // Check if the user has permission to delete the message
-    if message.user_id != user.id {
+    if message.user_id != Some(user.id) {
         return Err(anyhow!("User does not have permission to delete message").into());
     }
     // Delete the message from the database

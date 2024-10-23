@@ -26,6 +26,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use reqwest::{header, Client};
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
@@ -33,7 +34,7 @@ use tower_http::{
 };
 
 use chat::{
-    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
+    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations, query_model,
 };
 use cli::Args;
 use scc::HashMap;
@@ -56,6 +57,8 @@ pub const PROTOCOL: &str = "sqlite://";
 /// The application state that is shared across all routes.
 #[derive(Clone, Debug)]
 pub struct AppState {
+    /// This is a reqwest client that we use to make requests to the AI service.
+    client: reqwest::Client,
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
     user_sockets: Arc<HashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
@@ -70,6 +73,14 @@ pub struct AppState {
 impl AppState {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
+            client: reqwest::ClientBuilder::new().default_headers({
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(
+                    header::CONTENT_TYPE,
+                    "application/json".parse().expect("Failed to parse content type"),
+                );
+                headers
+            }).build().expect("Failed to build reqwest client"),
             user_sockets: Arc::new(HashMap::new()),
             user_connections: Arc::new(HashMap::new()),
             pool,
@@ -81,6 +92,13 @@ impl AppState {
 impl FromRef<AppState> for SqlitePool {
     fn from_ref(app_state: &AppState) -> SqlitePool {
         app_state.pool.clone()
+    }
+}
+
+// Support for automatically converting an `AppState` into an `Client`
+impl FromRef<AppState> for Client {
+    fn from_ref(app_state: &AppState) -> Client {
+        app_state.client.clone()
     }
 }
 
@@ -114,6 +132,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
+        .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);
 
