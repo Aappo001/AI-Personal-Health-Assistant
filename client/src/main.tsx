@@ -15,7 +15,7 @@ import ProfilePage from "./components/ProfilePage.tsx";
 
 const router = createBrowserRouter([
   {
-    path: "/",
+      path: "/",
     element: <App />,
     errorElement: <PageNotFound />, //will load when an error or not found error occurs anywhere in the app
   },

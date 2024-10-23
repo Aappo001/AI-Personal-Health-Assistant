@@ -35,8 +35,8 @@ export default function Login() {
       setResponseMessage(response.data.message);
       setError(false);
 
-      // Save the JWT from response headers (adjusted)
-      const jwt = response.headers["authorization"]; // Adjust according to your backend
+      // Save the JWT from response headers 
+      const jwt = response.headers["authorization"]; 
       if (jwt) {
         saveJwtToLocalStorage(jwt); // Save the JWT to local storage
       }

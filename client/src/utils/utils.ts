@@ -1,21 +1,24 @@
-import { implicitLoginSchema, } from "../schemas";
+import axios from "axios";
+import { implicitLoginSchema } from "../schemas";
 import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
 ): Promise<ServerResponse | ErrorResponse> {
-  const response = await fetch("http://localhost:3000/api/register", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(user),
-  });
+  try {
+    const response = await axios.post<ServerResponse>("http://localhost:3000/api/register", user, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
 
-  const result: ServerResponse = await response.json();
-  if (!response.ok) return { errorMessage: result.message };
-
-  return result;
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response) {
+      return { errorMessage: error.response.data.message };
+    }
+    return { errorMessage: "An error occurred. Please try again later." };
+  }
 }
 
 export function debounce<T extends unknown[]>(func: (...args: T) => void, delay: number):
@@ -30,30 +33,31 @@ export function debounce<T extends unknown[]>(func: (...args: T) => void, delay:
 }
 
 export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
-  const jwt = getJwt()
-  if (!jwt) return
-  const response = await fetch("http://localhost:3000/api/login", {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "authorization": `Bearer ${jwt}`
-    },
-  })
-  const data = await response.json()
-  if (!response.ok) {
-    console.log("Implicit Login Error");
-    return
-  }
-  const parsedData = implicitLoginSchema.safeParse(data)
-  if (parsedData.error) {
-    console.log(parsedData.error);
-    return
-  }
-  console.log(`Successful Implicit Login: User ${parsedData.data.username}`);
+  const jwt = getJwt();
+  if (!jwt) return;
+  
+  try {
+    const response = await axios.get<SessionUser>("http://localhost:3000/api/login", {
+      headers: {
+        "Content-Type": "application/json",
+        "authorization": `Bearer ${jwt}`,
+      },
+    });
 
-  return parsedData.data
-
-}
+    const parsedData = implicitLoginSchema.safeParse(response.data);
+    if (parsedData.error) {
+      console.log(parsedData.error);
+      return;
+    }
+    console.log(`Successful Implicit Login: User ${parsedData.data.username}`);
+    return parsedData.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      console.log("Implicit Login Error", error.response?.data);
+    }
+    return;
+  }
+};
 
 const mainColors = [
   "bg-main-green",
@@ -72,17 +76,17 @@ export const generateRandomColorArray = (length: number): string[] => {
 };
 
 export const getJwtFromResponseHeader = (response: Response) => {
-  const token = response.headers.get("authorization")?.split(" ")[1]
-  if (!token) return ""
-  return token
-}
+  const token = response.headers.get("authorization")?.split(" ")[1];
+  if (!token) return "";
+  return token;
+};
 
 export const saveJwtToLocalStorage = (jwt: string) => {
-  localStorage.setItem("token", jwt)
-}
+  localStorage.setItem("token", jwt);
+};
 
 export const getJwt = (): string => {
-  const jwt = localStorage.getItem("token")
-  if (!jwt) return ""
-  return jwt
-}
+  const jwt = localStorage.getItem("token");
+  if (!jwt) return "";
+  return jwt;
+};
