@@ -22,7 +22,7 @@ use std::{
 use anyhow::Result;
 use axum::{
     extract::FromRef,
-    http::{HeaderValue, HeaderName},
+    http::{HeaderName, HeaderValue},
     routing::{delete, get, post},
     Router,
 };
@@ -34,14 +34,21 @@ use tower_http::{
 };
 
 use chat::{
-    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations, query_model,
+    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
+    query_model,
 };
 use cli::Args;
 use scc::HashMap;
-use sqlx::SqlitePool;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    SqlitePool,
+};
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
-use users::{authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id, get_user_by_username, get_user_from_token};
+use users::{
+    authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id,
+    get_user_by_username, get_user_from_token,
+};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -73,14 +80,19 @@ pub struct AppState {
 impl AppState {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
-            client: reqwest::ClientBuilder::new().default_headers({
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    header::CONTENT_TYPE,
-                    "application/json".parse().expect("Failed to parse content type"),
-                );
-                headers
-            }).build().expect("Failed to build reqwest client"),
+            client: reqwest::ClientBuilder::new()
+                .default_headers({
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    headers.insert(
+                        header::CONTENT_TYPE,
+                        "application/json"
+                            .parse()
+                            .expect("Failed to parse content type"),
+                    );
+                    headers
+                })
+                .build()
+                .expect("Failed to build reqwest client"),
             user_sockets: Arc::new(HashMap::new()),
             user_connections: Arc::new(HashMap::new()),
             pool,
@@ -113,9 +125,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .allow_headers([
             HeaderName::from_static("authorization"),
             HeaderName::from_static("content-type"),
-            HeaderName::from_static("accept")
-            ]
-        )
+            HeaderName::from_static("accept"),
+        ])
         .expose_headers([HeaderName::from_static("authorization")]);
 
     let api = Router::new()
@@ -138,9 +149,9 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 
     let app = Router::new()
         .nest("/api", api)
-        .fallback_service(ServeDir::new("../client/dist")
-                .fallback(ServeFile::new("../client/dist/index.html"))
-            )
+        .fallback_service(
+            ServeDir::new("../client/dist").fallback(ServeFile::new("../client/dist/index.html")),
+        )
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
@@ -165,7 +176,16 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
             File::create(&path)?;
         }
     }
-    let pool = SqlitePool::connect_lazy(db_url)?;
+    let pool: SqlitePool = SqlitePool::connect_lazy_with(
+        SqliteConnectOptions::from_str(db_url)?
+            .foreign_keys(true)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            // Only user NORMAL is WAL mode is enabled
+            // as it provides extra performance benefits
+            // at the cost of durability
+            .synchronous(SqliteSynchronous::Normal)
+    );
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
 }

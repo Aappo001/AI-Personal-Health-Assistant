@@ -30,6 +30,7 @@ pub struct Conversation {
     /// The title of the conversation
     /// If this is None, the frontend should fallback to listing the
     /// usernames of the users in the conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub created_at: NaiveDateTime,
     pub last_message_at: NaiveDateTime,
@@ -96,15 +97,6 @@ pub async fn create_conversation(
     )
     .execute(&mut *tx)
     .await?;
-    // Send the initial message
-    sqlx::query!(
-        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?)",
-        user.id,
-        conversation_id,
-        init_message.message
-    )
-    .execute(&mut *tx)
-    .await?;
 
     // Everything went well, commit the transaction
     tx.commit().await?;
@@ -133,9 +125,12 @@ pub struct ChatMessage {
     pub conversation_id: i64,
     pub message: String,
     /// The id of the user who sent the message
-    /// This does not need to be sent by the client, it will be set by the server
-    /// This will not be None when the message is sent to the client
+    /// This will be none if the message was sent by the AI
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<i64>,
+    /// The id of the AI model that sent the message
+    /// This will be none if the message was sent by a user
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_model_id: Option<i64>,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,

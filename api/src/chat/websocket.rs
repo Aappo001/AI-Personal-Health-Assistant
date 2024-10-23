@@ -179,7 +179,7 @@ struct EditMessage {
     message: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RequestMessage {
     /// The id of the last message the client received from the conversation
@@ -219,36 +219,48 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 
     let mut rx = channel.subscribe();
     let tx = channel.clone();
-    let state_clone = state.clone();
-    let user_clone = user.clone();
 
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
-    let mut send_task = tokio::spawn(async move {
-        // Keep checking for incoming messages and sending messages to the client accordingly
-        // until the connection is closed
-        while let Ok(msg) = rx.recv().await {
-            if let Err(e) = send_message(&mut sender, msg).await {
-                error!("Error sending message: {}", e);
-                sender.send(Message::Text(e.to_string())).await.unwrap();
+    let mut send_task = tokio::spawn({
+        let user = user.clone();
+        async move {
+            // Keep checking for incoming messages and sending messages to the client accordingly
+            // until the connection is closed
+            while let Ok(msg) = rx.recv().await {
+                match send_message(&mut sender, msg, &user).await {
+                    Ok(true) => (),
+                    Ok(false) => {
+                        let _ = sender.close().await;
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Error sending messae: {}", e);
+                        sender.send(Message::Text(e.to_string())).await.unwrap();
+                    }
+                }
             }
         }
     });
 
     // Handle incoming messages from the client over the websocket
-    let mut receive_task = tokio::spawn(async move {
-        // Keep receiving messages until the connection is closed
-        while let Some(msg) = receiver.next().await {
-            match msg {
-                Ok(msg) => {
-                    if let Err(e) = handle_message(msg, &tx, &state_clone, &user_clone).await {
-                        error!("Error handling message: {}", e);
-                        let _ = tx.send(SocketResponse::Error(e.into()));
+    let mut receive_task = tokio::spawn({
+        let state = state.clone();
+        let user = user.clone();
+        async move {
+            // Keep receiving messages until the connection is closed
+            while let Some(msg) = receiver.next().await {
+                match msg {
+                    Ok(msg) => {
+                        if let Err(e) = handle_message(msg, &tx, &state, &user).await {
+                            error!("Error handling message: {}", e);
+                            let _ = tx.send(SocketResponse::Error(e.into()));
+                        }
                     }
-                }
-                Err(e) => {
-                    error!("Error receiving message: {}", e);
-                    break;
+                    Err(e) => {
+                        error!("Error receiving message: {}", e);
+                        break;
+                    }
                 }
             }
         }
@@ -297,7 +309,7 @@ async fn request_messages(
     }
 
     let limit = request.message_num.unwrap_or(50);
-    let message_id = request.message_num.unwrap_or(i64::MAX);
+    let message_id = request.message_id.unwrap_or(i64::MAX);
     Ok(sqlx::query_as!(
         ChatMessage,
         r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
@@ -766,23 +778,25 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
 }
 
 /// Send a message to the client over the websocket
-/// Option<()> is returned because the connection may have been closed
-/// Some(()) is returned if the message was sent successfully
-/// None is returned if the connection was closed
+/// bool is returned because the connection may have been closed
+/// true is returned if the message was sent successfully
+/// false is returned if the connection was closed
 async fn send_message(
     sender: &mut SplitSink<WebSocket, Message>,
     msg: SocketResponse,
-) -> Result<(), AppError> {
+    user: &UserToken,
+) -> Result<bool, AppError> {
+    // Check if the user is still authorized
+    // and close the connection if they are not
+    if user.exp < chrono::Utc::now().timestamp() {
+        return Ok(false);
+    }
     // *SAFETY* The `serde_json::to_string` function can safely be unwrapped because the `SocketResponse` enum
     // is serializable and will not panic
-    match msg {
-        // All responses should be serialized to JSON
-        // and sent as Text
-        response => {
-            sender
-                .send(Message::Text(serde_json::to_string(&response).unwrap()))
-                .await?;
-        }
-    }
-    Ok(())
+    // All responses should be serialized to JSON
+    // and sent as Text
+    sender
+        .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+        .await?;
+    Ok(true)
 }

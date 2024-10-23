@@ -15,16 +15,10 @@ use super::{broadcast_event, SendMessage, SocketResponse};
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamMessage {
-    /// If this is None, this is the first message in the conversation
-    /// and a new conversation should be created
     pub conversation_id: i64,
     /// The content of the current message
     // You must combine consecutive messages from the same role into a single message
     pub message: String,
-    /// The id of the user who sent the message
-    /// This does not need to be sent by the client, it will be set by the server
-    /// This will not be None when the message is sent to the client
-    pub ai_model_id: i64,
 }
 
 /// Query the AI model with the messages in the conversation
@@ -118,7 +112,6 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
                             .as_str()
                             .unwrap_or("")
                             .to_string(),
-                        ai_model_id: model_id,
                     }),
                 )
                 .await?;
