@@ -18,12 +18,13 @@ use tracing::{error, info, instrument, warn};
 use validator::ValidateRequired;
 
 use crate::{
+    chat::query_model,
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
     AppState,
 };
 
-use super::{create_conversation, ChatMessage, InviteData, ReadEvent};
+use super::{create_conversation, ChatMessage, InviteData, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -81,6 +82,8 @@ pub enum SocketResponse {
     Message(ChatMessage),
     /// The i64 is the id of the message to delete
     DeleteMessage(i64),
+    /// Stream data from the AI model
+    StreamData(StreamMessage),
     /// Invite to a conversation
     Invite(InviteData),
     /// Friend request to be sent to the client
@@ -640,10 +643,22 @@ async fn handle_message(
         Message::Text(text) => {
             let msg: SocketRequest = serde_json::from_str(&text)?;
             match msg {
-                SocketRequest::SendMessage(chat_message) => {
-                    let chat_message = save_message(&state.pool, &chat_message, user).await?;
+                SocketRequest::SendMessage(mut send_message) => {
+                    let chat_message = save_message(&state.pool, &send_message, user).await?;
+                    send_message.conversation_id = Some(chat_message.conversation_id);
                     // Broadcast the newly saved message to all the users in the conversation
-                    broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
+                    if send_message.ai_model_id.is_some() {
+                        // Query the AI model for a response and broadcast it to the conversation
+                        // at the same time
+                        let (_, ai_message) = tokio::join!(
+                            broadcast_event(state, SocketResponse::Message(chat_message.clone())),
+                            query_model(state, &send_message)
+                        );
+                        broadcast_event(state, SocketResponse::Message(ai_message?)).await?;
+                    } else {
+                        broadcast_event(state, SocketResponse::Message(chat_message.clone()))
+                            .await?;
+                    }
                 }
                 SocketRequest::EditMessage(chat_message) => {
                     let chat_message = edit_message(&state.pool, &chat_message, user).await?;
@@ -696,11 +711,12 @@ async fn handle_message(
 
 /// Broadcast an event to all the users in a conversation
 /// Events include messages, edits, and deletes, ect.
-async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
+pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
         SocketResponse::DeleteMessage(id) => *id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
+        SocketResponse::StreamData(data) => data.conversation_id,
         SocketResponse::Invite(invite) => invite
             .conversation_id
             .expect("Conversation id should be set"),
