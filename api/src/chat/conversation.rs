@@ -22,7 +22,7 @@ use crate::{
 use super::SendMessage;
 
 /// A conversation between at least one user and an AI
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Conversation {
     /// The id of the conversation

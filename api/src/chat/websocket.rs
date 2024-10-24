@@ -15,17 +15,17 @@ use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, info_span, instrument, warn};
 use validator::ValidateRequired;
 
 use crate::{
-    chat::query_model,
+    chat::{query_model, Conversation},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
     AppState,
 };
 
-use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
+use super::{conversation, create_conversation, ChatMessage, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -81,6 +81,8 @@ pub async fn connect_conversation(
 pub enum SocketResponse {
     /// Message to be sent to the client
     Message(ChatMessage),
+    /// Conversation to be sent to the client
+    Conversation(Conversation),
     /// The i64 is the id of the message to delete
     DeleteMessage(i64),
     /// Stream data from the AI model
@@ -126,7 +128,7 @@ pub enum FriendRequestStatus {
 //   conversationId: 1
 // }))
 /// The types of requests that can be made to the websocket
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 enum SocketRequest {
     /// Send a message to the conversation
@@ -160,11 +162,14 @@ enum SocketRequest {
     /// Does not provide timestamp because the server will set it
     ReadMessage(i64),
     /// Requst the previous messages in the conversation
-    /// The i64 is the id of the last message the client received
+    /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
+    /// Request the list of conversations the user is in
+    /// Returns conversations in order of last message sent
+    RequestConversations(RequestConversation),
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessage {
     pub conversation_id: Option<i64>,
@@ -172,14 +177,14 @@ pub struct SendMessage {
     pub ai_model_id: Option<i64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct EditMessage {
     id: i64,
     message: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct RequestMessage {
     /// The id of the last message the client received from the conversation
@@ -188,6 +193,17 @@ struct RequestMessage {
     conversation_id: i64,
     /// The maximum number of messages to request
     /// If this is None, the client is requesting 50 messages
+    message_num: Option<i64>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct RequestConversation {
+    /// The id of the last conversation the client received from the server
+    /// If this is None, the client has not received any messages yet
+    conversation_id: Option<i64>,
+    /// The maximum number of messages to request
+    /// If this is None, the client is requesting 50 conversations
     message_num: Option<i64>,
 }
 
@@ -333,9 +349,10 @@ async fn save_message(
 ) -> Result<ChatMessage, AppError> {
     // If the conversation_id is None, this is the first message in a conversation
     // so create a new conversation and get the id
-    let conversation_id = message
-        .conversation_id
-        .unwrap_or(create_conversation(pool, message, user).await?.id);
+    let conversation_id = match message.conversation_id {
+        Some(k) => k,
+        None => create_conversation(pool, message, user).await?.id,
+    };
 
     if sqlx::query!(
         "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
@@ -666,6 +683,7 @@ async fn handle_message(
     match msg {
         Message::Text(text) => {
             let msg: SocketRequest = serde_json::from_str(&text)?;
+            dbg!("Received", &msg);
             match msg {
                 SocketRequest::SendMessage(mut send_message) => {
                     let chat_message = save_message(&state.pool, &send_message, user).await?;
@@ -732,6 +750,28 @@ async fn handle_message(
                 SocketRequest::RequestMessages(request_message) => {
                     for message in request_messages(&state.pool, &request_message, user).await? {
                         tx.send(SocketResponse::Message(message))?;
+                    }
+                }
+                SocketRequest::RequestConversations(request_message) => {
+                    let limit = request_message.message_num.unwrap_or(50);
+                    let conversation_id = request_message.conversation_id.unwrap_or(i64::MAX);
+                    // Query the database for the conversations the user is in
+                    // Use fetch instead of fetch all to stream results to the client
+                    let mut query = sqlx::query_as!(
+                        Conversation,
+                        r#"SELECT conversations.id, conversations.title, conversations.created_at, conversations.last_message_at FROM conversations
+                           JOIN user_conversations
+                           ON conversations.id = user_conversations.conversation_id
+                           WHERE user_id = ? AND conversations.id < ?
+                           ORDER BY conversations.last_message_at DESC
+                           LIMIT ?"#,
+                        user.id,
+                        conversation_id,
+                        limit
+                    )
+                    .fetch(&state.pool);
+                    while let Some(conversation) = query.next().await {
+                        tx.send(SocketResponse::Conversation(conversation?))?;
                     }
                 }
             }
