@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosResponse } from "axios";
 import { implicitLoginSchema } from "../schemas";
 import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
 
@@ -75,8 +75,8 @@ export const generateRandomColorArray = (length: number): string[] => {
   return convoColors;
 };
 
-export const getJwtFromResponseHeader = (response: Response) => {
-  const token = response.headers.get("authorization")?.split(" ")[1];
+export const getJwtFromResponseHeader = (response: AxiosResponse) => {
+  const token = response.headers['authorization']?.split(" ")[1]
   if (!token) return "";
   return token;
 };
