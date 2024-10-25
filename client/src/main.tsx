@@ -10,10 +10,12 @@ import Register from "./components/Register.tsx";
 import Chat from "./components/Chat.tsx";
 import { ChatHome } from "./components/ChatHome.tsx";
 import ChatMessagePage from "./components/ChatMessagePage.tsx";
+import ProtectedRoute from "./components/ProtectedRoute.tsx";
+import ProfilePage from "./components/ProfilePage.tsx";
 
 const router = createBrowserRouter([
   {
-    path: "/",
+      path: "/",
     element: <App />,
     errorElement: <PageNotFound />, //will load when an error or not found error occurs anywhere in the app
   },
@@ -43,6 +45,15 @@ const router = createBrowserRouter([
         errorElement: <PageNotFound />,
       },
     ],
+  },
+  {
+    path: "/profile/:username",
+    element: (
+      <ProtectedRoute>
+        <ProfilePage />
+      </ProtectedRoute>
+    ),
+    errorElement: <PageNotFound />,
   },
 ]);
 

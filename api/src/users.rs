@@ -2,7 +2,6 @@ use std::ops::ControlFlow;
 
 use anyhow::{anyhow, Result};
 use axum::{
-    body::Body,
     extract::{Path, State},
     http::{
         header::{self, AUTHORIZATION},
@@ -13,6 +12,7 @@ use axum::{
 };
 use dotenv_codegen::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use macros::response;
 use password_auth::VerifyError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -44,7 +44,7 @@ pub struct CreateUser {
             max = 128,
             code = "Password must be between 8 and 128 characters"
         ),
-        custom(function = "check_password")
+        custom(function = "validate_password")
     )]
     pub password: String,
     #[validate(
@@ -53,7 +53,7 @@ pub struct CreateUser {
             max = 20,
             code = "Username must be between 3 and 20 characters"
         ),
-        custom(function = "check_username")
+        custom(function = "validate_username")
     )]
     pub username: String,
 }
@@ -99,9 +99,15 @@ pub async fn create_user(
     .await?
     {
         if existing_user.username == user_data.username {
-            return Ok((StatusCode::CONFLICT, "Username already exists").into_response());
+            return Err(AppError::UserError((
+                StatusCode::CONFLICT,
+                "Username already exists".into(),
+            )));
         } else {
-            return Ok((StatusCode::CONFLICT, "Email already in use").into_response());
+            return Err(AppError::UserError((
+                StatusCode::CONFLICT,
+                "Email already in use".into(),
+            )));
         }
     }
     let hashed_password = password_auth::generate_hash(&user_data.password);
@@ -122,7 +128,54 @@ pub async fn create_user(
         .into_response())
 }
 
-pub fn check_username(username: &str) -> Result<(), ValidationError> {
+pub async fn check_username(
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+) -> Result<Response, AppError> {
+    if username.len() < 3 || username.len() > 20 || validate_username(&username).is_err() {
+        return Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "Invalid username".into(),
+        )));
+    }
+    match sqlx::query!("SELECT username FROM users WHERE username = ?", username)
+        .fetch_optional(&pool)
+        .await?
+    {
+        Some(_) => Ok((
+            StatusCode::CONFLICT,
+            Json(response!("Username is already in use")),
+        )
+            .into_response()),
+        None => Ok(StatusCode::OK.into_response()),
+    }
+}
+
+pub async fn check_email(
+    State(pool): State<SqlitePool>,
+    Path(email): Path<String>,
+) -> Result<Response, AppError> {
+    let email_regex = regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").unwrap();
+    if !email_regex.is_match(&email) {
+        return Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "Invalid email".into(),
+        )));
+    }
+    match sqlx::query!("SELECT email FROM users WHERE email = ?", email)
+        .fetch_optional(&pool)
+        .await?
+    {
+        Some(_) => Ok((
+            StatusCode::CONFLICT,
+            Json(response!("Email is already in use")),
+        )
+            .into_response()),
+        None => Ok(StatusCode::OK.into_response()),
+    }
+}
+
+pub fn validate_username(username: &str) -> Result<(), ValidationError> {
     match username
         .chars()
         .try_fold((0, 0), |(alphanumeric, underscore), c| {
@@ -151,7 +204,7 @@ pub fn check_username(username: &str) -> Result<(), ValidationError> {
 }
 
 /// Verify that the password only contains ASCII characters
-fn check_password(password: &str) -> Result<(), ValidationError> {
+fn validate_password(password: &str) -> Result<(), ValidationError> {
     if !password.is_ascii() {
         Err(ValidationError::new(
             r#"must only contain alphanumeric characters and ASCII symbols"#,
@@ -170,7 +223,7 @@ pub struct LoginData {
             max = 20,
             code = "Username must be between 3 and 20 characters"
         ),
-        custom(function = "check_username")
+        custom(function = "validate_username")
     )]
     pub username: String,
     #[validate(
@@ -179,7 +232,7 @@ pub struct LoginData {
             max = 128,
             code = "Password must be between 8 and 128 characters"
         ),
-        custom(function = "check_password")
+        custom(function = "validate_password")
     )]
     pub password: String,
 }
@@ -203,13 +256,19 @@ pub async fn authenticate_user(
             .fetch_optional(&pool)
             .await?
     else {
-        return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+        return Err(AppError::UserError((
+            StatusCode::UNAUTHORIZED,
+            "Invalid username or password".into(),
+        )));
     };
 
     match password_auth::verify_password(&user_data.password, &existing_user.password_hash) {
         Ok(_) => (),
         Err(VerifyError::PasswordInvalid) => {
-            return Ok((StatusCode::UNAUTHORIZED, "Invalid username or password").into_response());
+            return Err(AppError::UserError((
+                StatusCode::UNAUTHORIZED,
+                "Invalid username or password".into(),
+            )));
         }
         Err(e) => {
             return Err(e.into());
@@ -228,21 +287,22 @@ pub async fn authenticate_user(
         &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
     )?;
 
-    let user = PublicUser {
+    let user = SessionUser {
         id: existing_user.id,
         username: existing_user.username,
+        email: existing_user.email,
         first_name: existing_user.first_name,
         last_name: existing_user.last_name,
     };
 
-    let response = Response::builder()
-        .status(StatusCode::OK)
-        .header(header::AUTHORIZATION, format!("Bearer {}", token))
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            serde_json::json!({"message": "Successfully authenticated", "user": serde_json::to_string(&user).unwrap() }).to_string(),
-        ))?;
-    Ok(response)
+    Ok((
+        StatusCode::OK,
+        [(header::AUTHORIZATION, format!("Bearer {}", token))],
+        // Don't need to set the content-type header since axum does
+        // it for us when we wrap the body in a `Json` struct
+        Json(response!("Successfully authenticated", user)),
+    )
+        .into_response())
 }
 
 /// Data of the currently authenticated user
@@ -272,11 +332,10 @@ pub async fn get_user_from_token(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((
+        return Err(AppError::UserError((
             StatusCode::NOT_FOUND,
-            Json(json!({ "message": "User not found" })),
-        )
-            .into_response());
+            "User not found".into(),
+        )));
     };
     Ok((StatusCode::OK, Json(user)).into_response())
 }
@@ -326,11 +385,10 @@ pub async fn get_user_by_id(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((
+        return Err(AppError::UserError((
             StatusCode::NOT_FOUND,
-            Json(json!({ "message": "User not found" })),
-        )
-            .into_response());
+            "User not found".into(),
+        )));
     };
 
     Ok((StatusCode::OK, Json(user)).into_response())
@@ -348,11 +406,10 @@ pub async fn get_user_by_username(
     .fetch_optional(&pool)
     .await?
     else {
-        return Ok((
+        return Err(AppError::UserError((
             StatusCode::NOT_FOUND,
-            Json(json!({ "message": "User not found" })),
-        )
-            .into_response());
+            "User not found".into(),
+        )));
     };
 
     Ok((StatusCode::OK, Json(user)).into_response())
@@ -367,21 +424,26 @@ pub async fn delete_user(
         return Err(AppError::AuthError(anyhow!("Token does not match user")));
     }
 
-    if sqlx::query!(
-        "SELECT id FROM users where id = ? and username = ?",
-        user.id,
-        user.username
-    )
-    .fetch_optional(&pool)
-    .await?
-    .is_none()
-    {
-        return Ok((StatusCode::NOT_FOUND, "User does not exist").into_response());
+    let Some(stored_user) = sqlx::query!("SELECT password_hash FROM users WHERE id = ?", user.id)
+        .fetch_optional(&pool)
+        .await?
+    else {
+        return Err(AppError::UserError((
+            StatusCode::NOT_FOUND,
+            "User does not exist".into(),
+        )));
+    };
+
+    if password_auth::verify_password(&user_data.password, &stored_user.password_hash).is_err() {
+        return Err(AppError::UserError((
+            StatusCode::UNAUTHORIZED,
+            "Invalid password".into(),
+        )));
     }
 
-    sqlx::query!("DELETE FROM users where id = ?", user.id)
+    sqlx::query!("DELETE FROM users WHERE id = ?", user.id)
         .execute(&pool)
         .await?;
 
-    Ok((StatusCode::OK, "User deleted").into_response())
+    Ok((StatusCode::OK, Json(response!("User deleted"))).into_response())
 }

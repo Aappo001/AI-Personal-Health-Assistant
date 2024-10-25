@@ -1,12 +1,10 @@
 import { useState } from "react";
 import { RegisterBody } from "../types";
 import Background from "./Background";
-import { RegisterUser } from "../utils/utils";
-import useAppDispatch from "../store/hooks/useAppDispatch";
-import { updateUser } from "../store/userSlice";
+import axios from "axios";
+import { RegisterUser, debounce } from "../utils/utils";
 
 export default function Register() {
-  const dispatch = useAppDispatch();
   const [user, setUser] = useState<RegisterBody>({
     firstName: "",
     lastName: "",
@@ -17,8 +15,27 @@ export default function Register() {
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     setUser({ ...user, [event.target.name]: event.target.value });
+    debounce(async (event: React.ChangeEvent<HTMLInputElement>) => {
+      if ((event.target.name === "username" || event.target.name === "email") && event.target.value) {
+        try {
+          const response = await axios.get(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
+
+          if (response.status !== 200) {
+            let error = response.data; // Update to handle the Axios response
+            setResponseMessage(error.message);
+            setError(true);
+          } else {
+            setResponseMessage(`Valid ${event.target.name}`);
+            setError(false);
+          }
+        } catch (error) {
+          setResponseMessage("An error occurred. Please try again later.");
+          setError(true);
+        }
+      }
+    }, 700)(event)
   };
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
@@ -45,7 +62,6 @@ export default function Register() {
       } else {
         setError(false);
         setResponseMessage(result.message);
-        dispatch(updateUser(user));
       }
     } catch (error) {
       setResponseMessage("An error occurred. Please try again later.");
@@ -56,8 +72,8 @@ export default function Register() {
   return (
     <Background color="black">
       <div className="w-full h-full flex flex-col justify-center items-center">
-        <div className=" border-2 border-offwhite px-4 py-4 flex flex-col items-center justify-evenly gap-4 w-3/12 h-4/5 rounded:sm">
-          <p className={` text-offwhite text-6xl font-bebas`}>Register</p>
+        <div className="border-2 border-offwhite px-4 py-4 flex flex-col items-center justify-evenly gap-4 w-3/12 h-4/5 rounded:sm">
+          <p className={`text-offwhite text-6xl font-bebas`}>Register</p>
           <form
             className="flex flex-col justify-center items-center gap-9 w-5/6"
             onSubmit={handleSubmit}
@@ -118,9 +134,8 @@ export default function Register() {
           </form>
           {responseMessage && (
             <div
-              className={`mt-4 text-xl ${
-                error ? "text-red-500" : "text-green-500"
-              }`}
+              className={`mt-4 text-xl ${error ? "text-red-500" : "text-green-500"
+                }`}
             >
               {responseMessage}
             </div>

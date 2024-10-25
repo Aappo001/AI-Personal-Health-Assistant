@@ -19,8 +19,10 @@ use crate::{
     users::UserToken,
 };
 
+use super::SendMessage;
+
 /// A conversation between at least one user and an AI
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Conversation {
     /// The id of the conversation
@@ -28,6 +30,7 @@ pub struct Conversation {
     /// The title of the conversation
     /// If this is None, the frontend should fallback to listing the
     /// usernames of the users in the conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub created_at: NaiveDateTime,
     pub last_message_at: NaiveDateTime,
@@ -56,7 +59,7 @@ pub async fn get_user_conversations(
 pub async fn create_conversation_rest(
     State(pool): State<SqlitePool>,
     JwtAuth(user): JwtAuth<UserToken>,
-    AppJson(init_message): AppJson<ChatMessage>,
+    AppJson(init_message): AppJson<SendMessage>,
 ) -> Result<Response, AppError> {
     // Limit the title to 32 characters
     // let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
@@ -71,7 +74,7 @@ pub async fn create_conversation_rest(
 /// Create a conversation between the user and the AI from an initial message
 pub async fn create_conversation(
     pool: &SqlitePool,
-    init_message: &ChatMessage,
+    init_message: &SendMessage,
     user: &UserToken,
 ) -> Result<Conversation, AppError> {
     let title = init_message.message.chars().take(32).collect::<String>();
@@ -91,15 +94,6 @@ pub async fn create_conversation(
         "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
         user.id,
         conversation_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    // Send the initial message
-    sqlx::query!(
-        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?)",
-        user.id,
-        conversation_id,
-        init_message.message
     )
     .execute(&mut *tx)
     .await?;
@@ -124,18 +118,22 @@ pub async fn create_conversation(
 pub struct ChatMessage {
     /// The id of the message
     /// If this is None, the message has not been saved to the database yet
-    pub id: Option<i64>,
+    pub id: i64,
     /// The id of the message
     /// If this is None, this is the first message in the conversation
     /// and a new conversation should be created
-    pub conversation_id: Option<i64>,
+    pub conversation_id: i64,
     pub message: String,
     /// The id of the user who sent the message
-    /// This does not need to be sent by the client, it will be set by the server
-    /// This will not be None when the message is sent to the client
+    /// This will be none if the message was sent by the AI
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<i64>,
-    pub created_at: Option<NaiveDateTime>,
-    pub modified_at: Option<NaiveDateTime>,
+    /// The id of the AI model that sent the message
+    /// This will be none if the message was sent by a user
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_model_id: Option<i64>,
+    pub created_at: NaiveDateTime,
+    pub modified_at: NaiveDateTime,
 }
 
 /// Get all the messages in a conversation
@@ -159,7 +157,7 @@ pub async fn get_conversation(
     }
     let res = &sqlx::query_as!(
             ChatMessage,
-            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id FROM messages
+            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
             WHERE conversations.id = ? 
             ORDER BY last_message_at DESC"#,
@@ -184,18 +182,3 @@ pub struct ReadEvent {
     /// The timestamp when the conversation was last read
     pub timestamp: NaiveDateTime,
 }
-
-/// Invite data to a conversation
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct InviteData {
-    pub conversation_id: Option<i64>,
-    /// The user who is inviting the other users
-    pub inviter: i64,
-    /// The users being invited to the conversation
-    pub invitees: Vec<i64>,
-    /// The timestamp when users were invited to the conversation
-    /// This should not be sent by the client, it will be set by the server
-    pub invited_at: Option<NaiveDateTime>,
-}
-

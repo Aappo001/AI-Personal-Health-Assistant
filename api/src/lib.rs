@@ -22,25 +22,33 @@ use std::{
 use anyhow::Result;
 use axum::{
     extract::FromRef,
-    http::{HeaderValue, HeaderName},
+    http::{HeaderName, HeaderValue},
     routing::{delete, get, post},
     Router,
 };
+use reqwest::{header, Client};
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
-    services::ServeDir,
+    services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
 
 use chat::{
     connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
+    query_model,
 };
 use cli::Args;
-use dashmap::DashMap;
-use sqlx::SqlitePool;
+use scc::HashMap;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    SqlitePool,
+};
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
-use users::{authenticate_user, create_user, delete_user, get_user_by_id, get_user_by_username, get_user_from_token};
+use users::{
+    authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id,
+    get_user_by_username, get_user_from_token,
+};
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -56,12 +64,14 @@ pub const PROTOCOL: &str = "sqlite://";
 /// The application state that is shared across all routes.
 #[derive(Clone, Debug)]
 pub struct AppState {
+    /// This is a reqwest client that we use to make requests to the AI service.
+    client: reqwest::Client,
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
-    user_sockets: Arc<DashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
+    user_sockets: Arc<HashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
     /// This is a map that keeps track of how many connections each user has. We use this to
     /// determine when we should remove the user from the `user_sockets` map.
-    user_connections: Arc<DashMap<i64, usize>>,
+    user_connections: Arc<HashMap<i64, usize>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
@@ -70,8 +80,21 @@ pub struct AppState {
 impl AppState {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
-            user_sockets: Arc::new(DashMap::new()),
-            user_connections: Arc::new(DashMap::new()),
+            client: reqwest::ClientBuilder::new()
+                .default_headers({
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    headers.insert(
+                        header::CONTENT_TYPE,
+                        "application/json"
+                            .parse()
+                            .expect("Failed to parse content type"),
+                    );
+                    headers
+                })
+                .build()
+                .expect("Failed to build reqwest client"),
+            user_sockets: Arc::new(HashMap::new()),
+            user_connections: Arc::new(HashMap::new()),
             pool,
         }
     }
@@ -84,6 +107,13 @@ impl FromRef<AppState> for SqlitePool {
     }
 }
 
+// Support for automatically converting an `AppState` into an `Client`
+impl FromRef<AppState> for Client {
+    fn from_ref(app_state: &AppState) -> Client {
+        app_state.client.clone()
+    }
+}
+
 /// Start the server and listen for incoming connections.
 pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
     let origin_regex = regex::Regex::new(r"^https?://localhost:\d+/?$").unwrap();
@@ -92,8 +122,12 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
             origin_regex.is_match(origin.to_str().unwrap_or_default())
         }))
         .allow_methods(cors::Any)
-        .allow_headers(cors::Any)
-        .expose_headers(vec![HeaderName::from_static("authorization")]);
+        .allow_headers([
+            HeaderName::from_static("authorization"),
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("accept"),
+        ])
+        .expose_headers([HeaderName::from_static("authorization")]);
 
     let api = Router::new()
         .route("/register", post(create_user))
@@ -103,16 +137,22 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/login", get(get_user_from_token))
         .route("/users/id/:id", get(get_user_by_id))
         .route("/users/username/:username", get(get_user_by_username))
-        .route("/users/delete", delete(delete_user))
+        .route("/check/username/:username", get(check_username))
+        .route("/check/email/:email", get(check_email))
+        .route("/account", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
+        .route("/chat/models", get(get_ai_models))
+        // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);
 
     let app = Router::new()
         .nest("/api", api)
-        .nest_service("/", ServeDir::new("../client/dist"))
+        .fallback_service(
+            ServeDir::new("../client/dist").fallback(ServeFile::new("../client/dist/index.html")),
+        )
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
@@ -137,7 +177,16 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
             File::create(&path)?;
         }
     }
-    let pool = SqlitePool::connect_lazy(db_url)?;
+    let pool: SqlitePool = SqlitePool::connect_lazy_with(
+        SqliteConnectOptions::from_str(db_url)?
+            .foreign_keys(true)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            // Only user NORMAL is WAL mode is enabled
+            // as it provides extra performance benefits
+            // at the cost of durability
+            .synchronous(SqliteSynchronous::Normal)
+    );
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
 }
