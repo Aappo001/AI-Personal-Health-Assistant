@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { getJwt } from "../../utils/utils";
+import { userChatMessageSchema } from "../../schemas";
 
 const handleMessage = (event: MessageEvent) => {
+  console.log("Received websocket response");
   const data = JSON.parse(event.data);
-  console.log("Received message event from websocket");
   console.log(JSON.stringify(data));
+
+  const parsedMessage = userChatMessageSchema.safeParse(data);
+  if (!parsedMessage.success) {
+    console.log("Error parsing websocket response");
+    return;
+  }
 };
 
 export default function useChatSetup() {
