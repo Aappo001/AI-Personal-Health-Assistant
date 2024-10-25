@@ -328,8 +328,9 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 async fn request_messages(
     pool: &SqlitePool,
     request: &RequestMessage,
+    tx: &broadcast::Sender<SocketResponse>,
     user: &UserToken,
-) -> Result<Vec<ChatMessage>, AppError> {
+) -> Result<(), AppError> {
     if sqlx::query!(
         r#"SELECT conversation_id FROM user_conversations
             WHERE conversation_id = ? and user_id = ?"#,
@@ -345,7 +346,8 @@ async fn request_messages(
 
     let limit = request.message_num.unwrap_or(50);
     let message_id = request.message_id.unwrap_or(i64::MAX);
-    Ok(sqlx::query_as!(
+
+    let mut query = sqlx::query_as!(
         ChatMessage,
         r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
@@ -356,8 +358,12 @@ async fn request_messages(
         message_id,
         limit
     )
-    .fetch_all(pool)
-    .await?)
+    .fetch(pool);
+
+    while let Some(message) = query.next().await {
+        tx.send(SocketResponse::Message(message?))?;
+    }
+    Ok(())
 }
 
 /// Save a message to the database
@@ -771,9 +777,7 @@ async fn handle_message(
                     .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
-                    for message in request_messages(&state.pool, &request_message, user).await? {
-                        tx.send(SocketResponse::Message(message))?;
-                    }
+                    request_messages(&state.pool, &request_message, tx, user).await?;
                 }
                 SocketRequest::RequestConversation(conversation_id) => {
                     if !sqlx::query!(
