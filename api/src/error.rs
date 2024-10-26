@@ -31,14 +31,14 @@ pub enum AppError {
 /// Used in both WebSockets and HTTP responses to notify the client of errors
 #[derive(Serialize, Debug, Clone)]
 pub struct ErrorResponse {
-    r#type: String,
+    error_type: String,
     message: String,
 }
 
 impl From<AppError> for ErrorResponse {
     fn from(value: AppError) -> Self {
         ErrorResponse {
-            r#type: value.r#type(),
+            error_type: value.r#type(),
             message: value.to_string(),
         }
     }
@@ -47,7 +47,7 @@ impl From<AppError> for ErrorResponse {
 impl From<JwtError> for ErrorResponse{
     fn from(value: JwtError) -> Self {
         ErrorResponse {
-            r#type: "AuthError".to_owned(),
+            error_type: "AuthError".to_owned(),
             message: value.to_string(),
         }
     }
@@ -128,7 +128,7 @@ impl IntoResponse for AppError {
         (
             status,
             Json(ErrorResponse {
-                r#type: self.r#type(),
+                error_type: self.r#type(),
                 message,
             }),
         )
