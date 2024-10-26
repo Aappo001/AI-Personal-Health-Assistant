@@ -1,6 +1,9 @@
 use std::{
     net::SocketAddr,
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::anyhow;
@@ -119,8 +122,10 @@ pub enum SocketResponse {
     /// Read event to inform the client that messages before a given timestamp
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
-    /// AI generation was canceled
-    CanceledGeneration,
+    /// AI generation was canceled in the conversation
+    CanceledGeneration {
+        conversation_id: i64,
+    },
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -265,7 +270,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                 user.id,
                 InnerSocket {
                     channel: tx,
-                    ai_responding: Arc::new(false.into()),
+                    ai_responding: Arc::new(AtomicI64::new(0)),
                 },
             )
             .await;
@@ -755,7 +760,9 @@ async fn handle_message(
                     send_message.conversation_id = Some(chat_message.conversation_id);
                     // Broadcast the newly saved message to all the users in the conversation
                     if send_message.ai_model_id.is_some() {
-                        socket.ai_responding.store(true, Ordering::SeqCst);
+                        socket
+                            .ai_responding
+                            .store(chat_message.conversation_id, Ordering::SeqCst);
                         // Query the AI model for a response and broadcast the user's message
                         // to the conversation at the same time
                         let (_, ai_message) = tokio::join!(
@@ -768,7 +775,7 @@ async fn handle_message(
                                     _ = async {
                                         let mut rx = socket.channel.subscribe();
                                         while let Ok(msg) = rx.recv().await {
-                                            if let SocketResponse::CanceledGeneration = msg {
+                                            if let SocketResponse::CanceledGeneration{..} = msg {
                                                 break;
                                             }
                                         }
@@ -778,7 +785,7 @@ async fn handle_message(
                                 }
                             }
                         );
-                        socket.ai_responding.store(false, Ordering::SeqCst);
+                        socket.ai_responding.store(0, Ordering::SeqCst);
                         // Broadcast the AI model's response to the conversation
                         broadcast_event(state, SocketResponse::Message(ai_message?)).await?;
                     } else {
@@ -918,8 +925,13 @@ async fn handle_message(
                     }
                 }
                 SocketRequest::CancelGeneration => {
-                    if socket.ai_responding.load(Ordering::SeqCst) {
-                        socket.channel.send(SocketResponse::CanceledGeneration)?;
+                    // Use 0 as a sentinel value to indicate that the AI generation 
+                    // is not running for the current user
+                    let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                    if conversation_id > 0 {
+                        socket
+                            .channel
+                            .send(SocketResponse::CanceledGeneration { conversation_id })?;
                     } else {
                         socket.channel.send(SocketResponse::Error(
                             AppError::from(anyhow!("No ai response to cancel")).into(),
