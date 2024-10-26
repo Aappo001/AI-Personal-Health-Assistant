@@ -1,9 +1,14 @@
+use axum::{
+    extract::State,
+    response::{IntoResponse, Json, Response},
+};
 use dotenv::var;
 use futures::StreamExt;
-use reqwest::header;
+use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
 use serde_json::json;
+use sqlx::SqlitePool;
 
 use crate::{chat::ChatMessage, error::AppError, AppState};
 
@@ -19,6 +24,13 @@ pub struct StreamMessage {
     /// The content of the current message
     // You must combine consecutive messages from the same role into a single message
     pub message: String,
+}
+
+/// An AI model that can be used to generate responses
+#[derive(Serialize)]
+pub struct AiModel {
+    pub id: i64,
+    pub name: String,
 }
 
 /// Query the AI model with the messages in the conversation
@@ -132,4 +144,18 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
     )
     .fetch_one(&state.pool)
     .await?)
+}
+
+/// Returns all the AI models in the database
+pub async fn get_ai_models(State(pool): State<SqlitePool>) -> Result<Response, AppError> {
+    Ok((
+        StatusCode::OK,
+        Json(
+            sqlx::query_as!(AiModel, "SELECT * FROM ai_models")
+                .fetch_all(&pool)
+                .await
+                .map_err(AppError::from)?,
+        ),
+    )
+        .into_response())
 }

@@ -15,8 +15,7 @@ use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
-use tracing::{error, info, info_span, instrument, warn};
-use validator::ValidateRequired;
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     chat::{query_model, Conversation},
@@ -25,7 +24,7 @@ use crate::{
     AppState,
 };
 
-use super::{conversation, create_conversation, ChatMessage, ReadEvent, StreamMessage};
+use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -80,6 +79,8 @@ pub async fn connect_conversation(
 #[serde(tag = "type")]
 pub enum SocketResponse {
     /// Message to be sent to the client
+    /// This can either be a newly sent message
+    /// or an edited message
     Message(ChatMessage),
     /// Conversation to be sent to the client
     Conversation(Conversation),
@@ -102,6 +103,10 @@ pub enum SocketResponse {
         receiver_id: i64,
         created_at: chrono::NaiveDateTime,
         status: FriendRequestStatus,
+    },
+    FriendData {
+        id: i64,
+        created_at: NaiveDateTime,
     },
     /// Error to inform the client
     Error(ErrorResponse),
@@ -161,29 +166,44 @@ enum SocketRequest {
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
     ReadMessage(i64),
-    /// Requst the previous messages in the conversation
+    /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
-    /// Request the list of conversations the user is in
+    /// Request data on a conversation with the given id
+    RequestConversation(i64),
+    /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
+    /// Request a stream of the user's friends
+    RequestFriends,
+    /// Request a stream of the user's friend requests
+    RequestFriendRequests,
 }
 
+/// A chat message sent by the client to the server
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessage {
+    /// The id of the conversation the message is being sent to
+    /// If this is None, the client is sending the first message in a new conversation
     pub conversation_id: Option<i64>,
     pub message: String,
+    /// The id of the model to query
+    /// If this is none, the message will not be sent to the AI model
     pub ai_model_id: Option<i64>,
 }
 
+/// Edit a message in the conversation
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct EditMessage {
+    /// The id of the message to edit
     id: i64,
+    /// The new content of the message
     message: String,
 }
 
+/// A request for the previous messages in a conversation
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct RequestMessage {
@@ -196,12 +216,18 @@ struct RequestMessage {
     message_num: Option<i64>,
 }
 
+/// A request for conversations the user is in
+/// This api returns a stream of conversation the user is a part of
+/// only the most recent conversations with an id are returned
+// This can be used to get data on a single conversation
+// by setting the conversation_id to the id of the conversation - 1
+// and the message_num to 1
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct RequestConversation {
     /// The id of the last conversation the client received from the server
     /// If this is None, the client has not received any messages yet
-    conversation_id: Option<i64>,
+    last_message_at: Option<NaiveDateTime>,
     /// The maximum number of messages to request
     /// If this is None, the client is requesting 50 conversations
     message_num: Option<i64>,
@@ -309,8 +335,9 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 async fn request_messages(
     pool: &SqlitePool,
     request: &RequestMessage,
+    tx: &broadcast::Sender<SocketResponse>,
     user: &UserToken,
-) -> Result<Vec<ChatMessage>, AppError> {
+) -> Result<(), AppError> {
     if sqlx::query!(
         r#"SELECT conversation_id FROM user_conversations
             WHERE conversation_id = ? and user_id = ?"#,
@@ -326,7 +353,8 @@ async fn request_messages(
 
     let limit = request.message_num.unwrap_or(50);
     let message_id = request.message_id.unwrap_or(i64::MAX);
-    Ok(sqlx::query_as!(
+
+    let mut query = sqlx::query_as!(
         ChatMessage,
         r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
@@ -337,8 +365,12 @@ async fn request_messages(
         message_id,
         limit
     )
-    .fetch_all(pool)
-    .await?)
+    .fetch(pool);
+
+    while let Some(message) = query.next().await {
+        tx.send(SocketResponse::Message(message?))?;
+    }
+    Ok(())
 }
 
 /// Save a message to the database
@@ -457,13 +489,17 @@ async fn handle_friend_request(
     // Check that the users are not already friends
     let user1_id = user.id.min(other_user_id);
     let user2_id = user.id.max(other_user_id);
-    sqlx::query!(
+    if sqlx::query!(
         "SELECT user1_id FROM friendships WHERE user1_id = ? and user2_id = ?",
         user1_id,
         user2_id
     )
     .fetch_optional(&state.pool)
-    .await?;
+    .await?
+    .is_some()
+    {
+        return Err(anyhow!("Users are already friends").into());
+    }
 
     let friend_request = if accept {
         // Check that the sender does not already have an outgoing friend request to
@@ -683,7 +719,7 @@ async fn handle_message(
     match msg {
         Message::Text(text) => {
             let msg: SocketRequest = serde_json::from_str(&text)?;
-            dbg!("Received", &msg);
+            info!("Received {:?}", msg);
             match msg {
                 SocketRequest::SendMessage(mut send_message) => {
                     let chat_message = save_message(&state.pool, &send_message, user).await?;
@@ -748,13 +784,33 @@ async fn handle_message(
                     .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
-                    for message in request_messages(&state.pool, &request_message, user).await? {
-                        tx.send(SocketResponse::Message(message))?;
+                    request_messages(&state.pool, &request_message, tx, user).await?;
+                }
+                SocketRequest::RequestConversation(conversation_id) => {
+                    if !sqlx::query!(
+                        "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+                        conversation_id,
+                        user.id
+                    ).fetch_optional(&state.pool).await?.is_some_and(|x| x.conversation_id == conversation_id) {
+                        return Err(anyhow!("User is not in the conversation").into());
                     }
+
+                    tx.send(SocketResponse::Conversation(
+                        sqlx::query_as!(
+                            Conversation,
+                            "SELECT * FROM conversations WHERE id = ?",
+                            conversation_id
+                        )
+                        .fetch_optional(&state.pool)
+                        .await?
+                        .ok_or_else(|| anyhow!("Conversation does not exist"))?,
+                    ))?;
                 }
                 SocketRequest::RequestConversations(request_message) => {
                     let limit = request_message.message_num.unwrap_or(50);
-                    let conversation_id = request_message.conversation_id.unwrap_or(i64::MAX);
+                    let last_message_at = request_message
+                        .last_message_at
+                        .unwrap_or(NaiveDateTime::MAX);
                     // Query the database for the conversations the user is in
                     // Use fetch instead of fetch all to stream results to the client
                     let mut query = sqlx::query_as!(
@@ -762,16 +818,54 @@ async fn handle_message(
                         r#"SELECT conversations.id, conversations.title, conversations.created_at, conversations.last_message_at FROM conversations
                            JOIN user_conversations
                            ON conversations.id = user_conversations.conversation_id
-                           WHERE user_id = ? AND conversations.id < ?
+                           WHERE user_id = ? AND conversations.last_message_at < ?
                            ORDER BY conversations.last_message_at DESC
                            LIMIT ?"#,
                         user.id,
-                        conversation_id,
+                        last_message_at,
                         limit
                     )
                     .fetch(&state.pool);
                     while let Some(conversation) = query.next().await {
                         tx.send(SocketResponse::Conversation(conversation?))?;
+                    }
+                }
+                SocketRequest::RequestFriends => {
+                    let mut query = sqlx::query!(
+                        "SELECT * FROM friendships WHERE user1_id = ? OR user2_id = ?",
+                        user.id,
+                        user.id
+                    )
+                    .fetch(&state.pool);
+                    while let Some(friendship) = query.next().await {
+                        let friendship = friendship?;
+                        let friend_id = if friendship.user1_id == user.id {
+                            friendship.user2_id
+                        } else {
+                            friendship.user1_id
+                        };
+                        tx.send(SocketResponse::FriendData {
+                            id: friend_id,
+                            created_at: friendship.created_at,
+                        })?;
+                    }
+                }
+                SocketRequest::RequestFriendRequests => {
+                    let mut query = sqlx::query!(
+                        "SELECT * FROM friend_requests WHERE sender_id = ? or receiver_id = ?",
+                        user.id,
+                        user.id
+                    )
+                    .fetch(&state.pool);
+
+                    while let Some(friend_request) = query.next().await {
+                        let friend_request = friend_request?;
+                        tx.send(SocketResponse::FriendRequest {
+                            sender_id: friend_request.sender_id,
+                            receiver_id: friend_request.receiver_id,
+                            created_at: friend_request.created_at,
+                            status: FriendRequestStatus::Pending,
+                        })?;
                     }
                 }
             }

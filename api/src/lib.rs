@@ -34,13 +34,12 @@ use tower_http::{
 };
 
 use chat::{
-    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
-    query_model,
+    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations, get_ai_models,
 };
 use cli::Args;
 use scc::HashMap;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
 use tokio::{net::TcpListener, sync::broadcast};
@@ -143,6 +142,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
+        .route("/chat/models", get(get_ai_models))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);

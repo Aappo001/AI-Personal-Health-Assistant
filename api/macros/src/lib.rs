@@ -1,7 +1,7 @@
 use jres::jres_impl;
 use proc_macro::{TokenStream};
 use response::response_gen_impl;
-use syn::{parse_macro_input, punctuated::Punctuated, token::Comma, Ident, Expr};
+use syn::{parse_macro_input, punctuated::Punctuated, token::Comma, Expr};
 
 mod response;
 mod jres;

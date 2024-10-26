@@ -180,7 +180,7 @@ where
         // We don't need to add `AuthError` or `ValidationError` because we will handle those
         // explicitly in our application.
         if err.downcast_ref::<JsonRejection>().is_some() {
-            return Self::JsonRejection(err.downcast().unwrap());
+            return Self::JsonRejection(err.downcast().unwrap())
         } else if err.downcast_ref::<sqlx::Error>().is_some() {
             return Self::SqlxError(err.downcast().unwrap());
         } else if err.downcast_ref::<serde_json::Error>().is_some() {

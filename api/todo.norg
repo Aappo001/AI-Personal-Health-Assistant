@@ -2,8 +2,8 @@
   - ( ) Integrate AI features
   -- ( ) AI model querying
   --- ( ) Requerying AI model
-  --- ( ) Streaming model responses to client
-  -- ( ) User model selection (allow multiple models selectable by user)
+  --- (x) Streaming model responses to client
+  -- (x) User model selection (allow multiple models selectable by user)
   -- ( ) User feedback collection
   - ( ) Integrate message searching
   -- ( ) Sorting search results
