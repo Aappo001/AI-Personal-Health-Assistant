@@ -26,6 +26,14 @@ export default function WebsocketTesting() {
           >
             Send Friend Req to username kkk
           </button>
+          <button
+            onClick={() => {
+              sendFriendRequest("jjj");
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Accept Friend Req to username jjj
+          </button>
         </div>
       </Background>
     </>
