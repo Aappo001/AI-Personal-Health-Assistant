@@ -16,7 +16,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     str::FromStr,
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
 use anyhow::Result;
@@ -67,13 +67,19 @@ pub struct AppState {
     client: reqwest::Client,
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
-    user_sockets: Arc<HashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
+    user_sockets: Arc<HashMap<i64, InnerSocket>>,
     /// This is a map that keeps track of how many connections each user has. We use this to
     /// determine when we should remove the user from the `user_sockets` map.
     user_connections: Arc<HashMap<i64, usize>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
+}
+
+#[derive(Clone, Debug)]
+pub struct InnerSocket {
+    channel: broadcast::Sender<chat::SocketResponse>,
+    ai_responding: Arc<AtomicBool>,
 }
 
 impl AppState {

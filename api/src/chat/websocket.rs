@@ -1,4 +1,7 @@
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{atomic::Ordering, Arc},
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -21,7 +24,7 @@ use crate::{
     chat::{query_model, Conversation},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
-    AppState,
+    AppState, InnerSocket,
 };
 
 use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
@@ -113,6 +116,8 @@ pub enum SocketResponse {
     /// Read event to inform the client that messages before a given timestamp
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
+    /// AI generation was canceled
+    CanceledGeneration,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -178,10 +183,12 @@ enum SocketRequest {
     RequestFriends,
     /// Request a stream of the user's friend requests
     RequestFriendRequests,
+    /// Can be used to cancel an ongoing AI generation
+    CancelGeneration,
 }
 
 /// A chat message sent by the client to the server
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessage {
     /// The id of the conversation the message is being sent to
@@ -238,6 +245,7 @@ struct RequestConversation {
 #[instrument]
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
+    let user = Arc::new(user);
 
     // Increase the number of connections the user has
     let mut user_connections = *state
@@ -250,17 +258,26 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     // This is the first connection the user has, so create a broadcast channel to start sending
     if user_connections == 1 {
         let (tx, _) = broadcast::channel(10);
-        let _ = state.user_sockets.insert_async(user.id, tx).await;
+        let _ = state
+            .user_sockets
+            .insert_async(
+                user.id,
+                InnerSocket {
+                    channel: tx,
+                    ai_responding: Arc::new(false.into()),
+                },
+            )
+            .await;
     }
 
-    let channel = state
+    let socket = state
         .user_sockets
         .read_async(&user.id, |_, v| v.clone())
         .await
         .unwrap();
 
-    let mut rx = channel.subscribe();
-    let tx = channel.clone();
+    let mut rx = socket.channel.subscribe();
+    let tx = socket.channel.clone();
 
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
@@ -292,18 +309,25 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         async move {
             // Keep receiving messages until the connection is closed
             while let Some(msg) = receiver.next().await {
-                match msg {
-                    Ok(msg) => {
-                        if let Err(e) = handle_message(msg, &tx, &state, &user).await {
-                            error!("Error handling message: {}", e);
-                            let _ = tx.send(SocketResponse::Error(e.into()));
+                tokio::spawn({
+                    let tx = tx.clone();
+                    let user = user.clone();
+                    let socket = socket.clone();
+                    let state = state.clone();
+                    async move {
+                        match msg {
+                            Ok(msg) => {
+                                if let Err(e) = handle_message(msg, &socket, &state, &user).await {
+                                    error!("Error handling message: {}", e);
+                                    let _ = tx.send(SocketResponse::Error(e.into()));
+                                }
+                            }
+                            Err(e) => {
+                                error!("Error receiving message: {}", e);
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!("Error receiving message: {}", e);
-                        break;
-                    }
-                }
+                });
             }
         }
     });
@@ -597,13 +621,13 @@ async fn handle_friend_request(
     // Only send the friend request over the websocket to the receiver
     // if the receiver is online
     if let Some(receiver) = state.user_sockets.get(&other_user_id) {
-        receiver.send(friend_request.clone())?;
+        receiver.channel.send(friend_request.clone())?;
     }
 
     // Send the friend request over the websocket to the sender
     // to let them know that the friend request was sent successfully
     if let Some(sender) = state.user_sockets.get(&user.id) {
-        sender.send(friend_request)?;
+        sender.channel.send(friend_request)?;
     }
     Ok(())
 }
@@ -712,7 +736,7 @@ async fn read_event(
 /// variant
 async fn handle_message(
     msg: Message,
-    tx: &broadcast::Sender<SocketResponse>,
+    socket: &InnerSocket,
     state: &AppState,
     user: &UserToken,
 ) -> Result<(), AppError> {
@@ -726,12 +750,42 @@ async fn handle_message(
                     send_message.conversation_id = Some(chat_message.conversation_id);
                     // Broadcast the newly saved message to all the users in the conversation
                     if send_message.ai_model_id.is_some() {
+                        socket.ai_responding.store(true, Ordering::SeqCst);
                         // Query the AI model for a response and broadcast the user's message
                         // to the conversation at the same time
                         let (_, ai_message) = tokio::join!(
                             broadcast_event(state, SocketResponse::Message(chat_message.clone())),
-                            query_model(state, &send_message)
+                            async {
+                                let mut query_task = tokio::spawn({
+                                    let state = state.clone();
+                                    let send_message = send_message.clone();
+                                    async move { query_model(&state, &send_message).await }
+                                });
+                                let mut cancellation_task = tokio::spawn({
+                                    let socket = socket.clone();
+                                    async move {
+                                        let mut rx = socket.channel.subscribe();
+                                        while let Ok(msg) = rx.recv().await {
+                                            if let SocketResponse::CanceledGeneration = msg {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                });
+                                tokio::select! {
+                                    ai_message = &mut query_task => {
+                                        cancellation_task.abort();
+                                        socket.ai_responding.store(false, Ordering::SeqCst);
+                                        ai_message?
+                                    }
+                                    _ = &mut cancellation_task => {
+                                        query_task.abort();
+                                        Err(anyhow!("AI generation canceled").into())
+                                    }
+                                }
+                            }
                         );
+                        socket.ai_responding.store(false, Ordering::SeqCst);
                         // Broadcast the AI model's response to the conversation
                         broadcast_event(state, SocketResponse::Message(ai_message?)).await?;
                     } else {
@@ -784,7 +838,7 @@ async fn handle_message(
                     .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
-                    request_messages(&state.pool, &request_message, tx, user).await?;
+                    request_messages(&state.pool, &request_message, &socket.channel, user).await?;
                 }
                 SocketRequest::RequestConversation(conversation_id) => {
                     if !sqlx::query!(
@@ -795,7 +849,7 @@ async fn handle_message(
                         return Err(anyhow!("User is not in the conversation").into());
                     }
 
-                    tx.send(SocketResponse::Conversation(
+                    socket.channel.send(SocketResponse::Conversation(
                         sqlx::query_as!(
                             Conversation,
                             "SELECT * FROM conversations WHERE id = ?",
@@ -827,7 +881,9 @@ async fn handle_message(
                     )
                     .fetch(&state.pool);
                     while let Some(conversation) = query.next().await {
-                        tx.send(SocketResponse::Conversation(conversation?))?;
+                        socket
+                            .channel
+                            .send(SocketResponse::Conversation(conversation?))?;
                     }
                 }
                 SocketRequest::RequestFriends => {
@@ -844,7 +900,7 @@ async fn handle_message(
                         } else {
                             friendship.user1_id
                         };
-                        tx.send(SocketResponse::FriendData {
+                        socket.channel.send(SocketResponse::FriendData {
                             id: friend_id,
                             created_at: friendship.created_at,
                         })?;
@@ -860,13 +916,16 @@ async fn handle_message(
 
                     while let Some(friend_request) = query.next().await {
                         let friend_request = friend_request?;
-                        tx.send(SocketResponse::FriendRequest {
+                        socket.channel.send(SocketResponse::FriendRequest {
                             sender_id: friend_request.sender_id,
                             receiver_id: friend_request.receiver_id,
                             created_at: friend_request.created_at,
                             status: FriendRequestStatus::Pending,
                         })?;
                     }
+                }
+                SocketRequest::CancelGeneration => {
+                    socket.channel.send(SocketResponse::CanceledGeneration)?;
                 }
             }
         }
@@ -903,7 +962,7 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
     .await?;
     for user in users {
         if let Some(user) = state.user_sockets.get(&user.user_id) {
-            if let Err(e) = user.send(msg.clone()) {
+            if let Err(e) = user.channel.send(msg.clone()) {
                 warn!("Error broadcasting event: {}", e);
             }
         }
