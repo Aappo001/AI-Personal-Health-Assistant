@@ -756,30 +756,18 @@ async fn handle_message(
                         let (_, ai_message) = tokio::join!(
                             broadcast_event(state, SocketResponse::Message(chat_message.clone())),
                             async {
-                                let mut query_task = tokio::spawn({
-                                    let state = state.clone();
-                                    let send_message = send_message.clone();
-                                    async move { query_model(&state, &send_message).await }
-                                });
-                                let mut cancellation_task = tokio::spawn({
-                                    let socket = socket.clone();
-                                    async move {
+                                tokio::select! {
+                                    ai_message = query_model(state, &send_message) => {
+                                        ai_message
+                                    }
+                                    _ = async {
                                         let mut rx = socket.channel.subscribe();
                                         while let Ok(msg) = rx.recv().await {
                                             if let SocketResponse::CanceledGeneration = msg {
                                                 break;
                                             }
                                         }
-                                    }
-                                });
-                                tokio::select! {
-                                    ai_message = &mut query_task => {
-                                        cancellation_task.abort();
-                                        socket.ai_responding.store(false, Ordering::SeqCst);
-                                        ai_message?
-                                    }
-                                    _ = &mut cancellation_task => {
-                                        query_task.abort();
+                                    } => {
                                         Err(anyhow!("AI generation canceled").into())
                                     }
                                 }
@@ -925,7 +913,13 @@ async fn handle_message(
                     }
                 }
                 SocketRequest::CancelGeneration => {
-                    socket.channel.send(SocketResponse::CanceledGeneration)?;
+                    if socket.ai_responding.load(Ordering::SeqCst) {
+                        socket.channel.send(SocketResponse::CanceledGeneration)?;
+                    } else {
+                        socket.channel.send(SocketResponse::Error(
+                            AppError::from(anyhow!("No ai response to cancel")).into(),
+                        ))?;
+                    }
                 }
             }
         }
