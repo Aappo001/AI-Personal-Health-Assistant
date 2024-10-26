@@ -34,13 +34,12 @@ use tower_http::{
 };
 
 use chat::{
-    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
-    query_model, get_ai_models,
+    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations, get_ai_models,
 };
 use cli::Args;
 use scc::HashMap;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
 use tokio::{net::TcpListener, sync::broadcast};

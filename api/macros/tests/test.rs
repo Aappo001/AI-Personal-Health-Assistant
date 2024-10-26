@@ -1,7 +1,6 @@
 use core::panic;
 
-use macros::{jres, response_gen};
-use serde_json::json;
+use macros::response;
 
 #[derive(serde::Serialize)]
 pub struct User{
@@ -17,6 +16,6 @@ fn it_works() {
         id: 727,
         email: "touching@grass.now".to_string()
     };
-    eprintln!("{}", serde_json::to_string(&response_gen!("User created", user)).unwrap());
+    eprintln!("{}", serde_json::to_string(&response!("User created", user)).unwrap());
     panic!()
 }
