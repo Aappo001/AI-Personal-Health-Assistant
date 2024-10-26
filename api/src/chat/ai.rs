@@ -56,19 +56,21 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
     });
     // Populate the messages array with the messages in the conversation
     if let Some(req_messages) = body["messages"].as_array_mut() {
-        let db_messages = sqlx::query!(
+        // Query the messages as a stream to save memory
+        // This saves a tong on longer conversations
+        let mut db_messages = sqlx::query!(
             "SELECT message, user_id, ai_model_id FROM messages WHERE conversation_id = ?",
             conversation_id
         )
-        .fetch_all(&state.pool)
-        .await?;
+        .fetch(&state.pool);
 
         // If we don't alternate between user and assistant messages, the AI will give us an error and
         // get stuck so we need to concatenate consecutive user and system messages together
         let mut last_role;
         let mut cur_role = "user";
         let mut cur_content = String::new();
-        for message in db_messages {
+        while let Some(message) = db_messages.next().await {
+            let message = message?;
             last_role = cur_role;
             cur_role = if message.user_id.is_some() {
                 "user"

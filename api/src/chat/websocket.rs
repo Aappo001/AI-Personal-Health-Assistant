@@ -226,9 +226,6 @@ struct RequestMessage {
 /// A request for conversations the user is in
 /// This api returns a stream of conversation the user is a part of
 /// only the most recent conversations with an id are returned
-// This can be used to get data on a single conversation
-// by setting the conversation_id to the id of the conversation - 1
-// and the message_num to 1
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct RequestConversation {
@@ -309,6 +306,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         async move {
             // Keep receiving messages until the connection is closed
             while let Some(msg) = receiver.next().await {
+                // Spawn a new task for each message received
                 tokio::spawn({
                     let tx = tx.clone();
                     let user = user.clone();
@@ -860,7 +858,7 @@ async fn handle_message(
                         r#"SELECT conversations.id, conversations.title, conversations.created_at, conversations.last_message_at FROM conversations
                            JOIN user_conversations
                            ON conversations.id = user_conversations.conversation_id
-                           WHERE user_id = ? AND conversations.last_message_at < ?
+                           WHERE user_id = ? AND conversations.last_message_at > ?
                            ORDER BY conversations.last_message_at DESC
                            LIMIT ?"#,
                         user.id,
