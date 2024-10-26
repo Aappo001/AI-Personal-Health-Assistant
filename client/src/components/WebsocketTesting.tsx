@@ -1,16 +1,14 @@
 import Background from "./Background";
-import useChatSetup from "../store/hooks/useChat";
+import useWebsocketSetup from "../store/hooks/useWebsocket";
 
 export default function WebsocketTesting() {
-  const { handleSendMessage, loading } = useChatSetup();
+  const { handleSendMessage, sendFriendRequest, loading } = useWebsocketSetup();
   return (
     <>
       <Background>
         <div className="w-full flex flex-col justify-center items-center">
           <h1 className=" text-3xl text-offwhite">
-            {loading
-              ? "Websocket connection loading...."
-              : "Websocket connection established"}
+            {loading ? "Websocket connection loading...." : "Websocket connection established"}
           </h1>
           <button
             onClick={() => {
@@ -19,6 +17,14 @@ export default function WebsocketTesting() {
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
             Send a message
+          </button>
+          <button
+            onClick={() => {
+              sendFriendRequest("kkk");
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Send Friend Req to username kkk
           </button>
         </div>
       </Background>

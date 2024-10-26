@@ -16,6 +16,13 @@ export const sessionUserSchema =  z.object({
     username: z.string(),
   });
 
+export const publicUserSchema = z.object({
+  id: z.number(),
+  username: z.string(),
+  firstName: z.string(),
+  lastName: z.string()
+})
+
 export const implicitLoginSchema = sessionUserSchema
 
 export const loginResponseSchema = z.object({
@@ -50,10 +57,12 @@ export const inviteSchema = z.object({
   invitedAt: z.string()
 })
 
+// {"type":"FriendRequest","sender_id":1,"receiver_id":2,"created_at":"2024-10-26T04:00:40","status":"Pending"}
 export const friendRequestSchema = z.object({
-  senderId: z.number(),
+  type: z.literal("FriendRequest"),
+  sender_id: z.number(),
   receiverId: z.string(),
-  createdAt: z.string(),
+  created_at: z.string(),
   status: z.string()
 })
 

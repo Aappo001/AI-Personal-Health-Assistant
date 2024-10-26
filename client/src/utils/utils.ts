@@ -1,5 +1,5 @@
 import axios, { AxiosResponse } from "axios";
-import { implicitLoginSchema } from "../schemas";
+import { implicitLoginSchema, publicUserSchema } from "../schemas";
 import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
 
 export async function RegisterUser(
@@ -58,6 +58,24 @@ export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
     return;
   }
 };
+
+export const getUserIdFromUsername = async (username: string): Promise<number | undefined> => {
+  const response = await fetch(`http://localhost:3000/api/users/username/${username}`);
+
+  if (!response.ok) {
+    console.log("Error getting user id from username");
+    return;
+  }
+
+  const parsedUser = publicUserSchema.safeParse(await response.json());
+  if (!parsedUser.success || parsedUser.error) {
+    console.log("Error sending friend request: Bad JSON received from server");
+    return;
+  }
+
+  return parsedUser.data.id
+
+}
 
 const mainColors = [
   "bg-main-green",

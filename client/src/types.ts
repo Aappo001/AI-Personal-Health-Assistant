@@ -32,6 +32,13 @@ export type SessionUser = {
     username: string,
 }
 
+export type PublicUser = {
+    id: number,
+    username: string,
+    firstName: string,
+    lastName: string
+}
+
 export type ServerAppError = {
     message: string,
     type: string

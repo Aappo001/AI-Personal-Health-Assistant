@@ -1,20 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { getJwt } from "../../utils/utils";
-import { userChatMessageSchema } from "../../schemas";
+import { getJwt, getUserIdFromUsername } from "../../utils/utils";
+import { wsSendFriendRequest, SocketResponse } from "../../utils/ws-utils";
 
 const handleMessage = (event: MessageEvent) => {
   console.log("Received websocket response");
   const data = JSON.parse(event.data);
-  console.log(JSON.stringify(data));
-
-  const parsedMessage = userChatMessageSchema.safeParse(data);
-  if (!parsedMessage.success) {
-    console.log("Error parsing websocket response");
+  const type = data.type;
+  if (!type) {
+    console.log("type field missing from JSON response");
     return;
   }
+  switch (type) {
+    case SocketResponse.Message:
+      console.log(`Received message: ${data.message} from user ${data.userId}`);
+      break;
+    case SocketResponse.FriendRequest:
+      console.log("Friend Request sent or received");
+      break;
+    case SocketResponse.Generic:
+      console.log(`Received Generic Message: ${data.message}`);
+      break;
+    default:
+      console.log(`Unknown SocketResponseType: ${type}`);
+  }
+
+  console.log(JSON.stringify(data));
 };
 
-export default function useChatSetup() {
+export default function useWebsocketSetup() {
   const socketRef = useRef<WebSocket | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -48,10 +61,24 @@ export default function useChatSetup() {
       socketRef.current.send(
         JSON.stringify({
           type: "SendMessage",
-          message: "Hello vro",
+          message: message,
         })
       );
     },
+    sendFriendRequest: (username: string) => {
+      if (!socketRef.current) {
+        console.error(`Error: websocket not initialized`);
+        return;
+      }
+
+      getUserIdFromUsername(username)
+        .then((id) => {
+          if (!id || !socketRef.current) return;
+          wsSendFriendRequest(socketRef.current, id);
+        })
+        .catch((err) => console.log(err));
+    },
+
     loading,
   };
 }
