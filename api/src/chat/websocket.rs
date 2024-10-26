@@ -126,6 +126,9 @@ pub enum SocketResponse {
     CanceledGeneration {
         conversation_id: i64,
     },
+    /// Not for the client, just to cancel AI generation
+    /// internally on the server
+    InternalCanceledGeneration,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -770,24 +773,36 @@ async fn handle_message(
                             async {
                                 tokio::select! {
                                     ai_message = query_model(state, &send_message) => {
-                                        ai_message
+                                        Some(ai_message)
                                     }
                                     _ = async {
                                         let mut rx = socket.channel.subscribe();
                                         while let Ok(msg) = rx.recv().await {
-                                            if let SocketResponse::CanceledGeneration{..} = msg {
+                                            if let SocketResponse::InternalCanceledGeneration = msg {
                                                 break;
                                             }
                                         }
                                     } => {
-                                        Err(anyhow!("AI generation canceled").into())
+                                        let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                                        broadcast_event(
+                                            state,
+                                            SocketResponse::CanceledGeneration { conversation_id },
+                                        )
+                                        .await;
+                                        None
                                     }
                                 }
                             }
                         );
                         socket.ai_responding.store(0, Ordering::SeqCst);
                         // Broadcast the AI model's response to the conversation
-                        broadcast_event(state, SocketResponse::Message(ai_message?)).await?;
+                        match ai_message {
+                            Some(ai_message) => {
+                                broadcast_event(state, SocketResponse::Message(ai_message?))
+                                    .await?;
+                            }
+                            None => return Ok(()),
+                        }
                     } else {
                         broadcast_event(state, SocketResponse::Message(chat_message.clone()))
                             .await?;
@@ -801,7 +816,14 @@ async fn handle_message(
                 SocketRequest::DeleteMessage { message_id } => {
                     let deleted_message = delete_message(&state.pool, message_id, user).await?;
                     // Broadcast the deleted message to all the users in the conversation
-                    broadcast_event(state, SocketResponse::DeleteMessage { message_id: deleted_message.id, conversation_id: deleted_message.conversation_id }).await?;
+                    broadcast_event(
+                        state,
+                        SocketResponse::DeleteMessage {
+                            message_id: deleted_message.id,
+                            conversation_id: deleted_message.conversation_id,
+                        },
+                    )
+                    .await?;
                 }
                 SocketRequest::InviteUsers {
                     invitees,
@@ -925,13 +947,13 @@ async fn handle_message(
                     }
                 }
                 SocketRequest::CancelGeneration => {
-                    // Use 0 as a sentinel value to indicate that the AI generation 
+                    // Use 0 as a sentinel value to indicate that the AI generation
                     // is not running for the current user
                     let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
                     if conversation_id > 0 {
                         socket
                             .channel
-                            .send(SocketResponse::CanceledGeneration { conversation_id })?;
+                            .send(SocketResponse::InternalCanceledGeneration)?;
                     } else {
                         socket.channel.send(SocketResponse::Error(
                             AppError::from(anyhow!("No ai response to cancel")).into(),
@@ -955,14 +977,15 @@ async fn handle_message(
 pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
-        SocketResponse::DeleteMessage { conversation_id, .. } => *conversation_id,
+        SocketResponse::DeleteMessage {
+            conversation_id, ..
+        } => *conversation_id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
         SocketResponse::Invite {
-            inviter: _,
-            conversation_id,
-            invited_at: _,
+            conversation_id, ..
         } => *conversation_id,
+        SocketResponse::CanceledGeneration { conversation_id } => *conversation_id,
         _ => unreachable!("uuhhh how"),
     };
     let users = sqlx::query!(
@@ -999,8 +1022,13 @@ async fn send_message(
     // is serializable and will not panic
     // All responses should be serialized to JSON
     // and sent as Text
-    sender
-        .send(Message::Text(serde_json::to_string(&msg).unwrap()))
-        .await?;
+    match msg {
+        SocketResponse::InternalCanceledGeneration => {}
+        _ => {
+            sender
+                .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                .await?;
+        }
+    }
     Ok(true)
 }
