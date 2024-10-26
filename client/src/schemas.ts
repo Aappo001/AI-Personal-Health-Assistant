@@ -52,9 +52,10 @@ export const conversationSchema = z.object({
 })
 
 export const inviteSchema = z.object({
-  conversationId: z.number(),
+  type: z.literal("Invite"),
+  conversation_id: z.number(),
   inviter: z.number(),
-  invitedAt: z.string()
+  invited_at: z.string()
 })
 
 // {"type":"FriendRequest","sender_id":1,"receiver_id":2,"created_at":"2024-10-26T04:00:40","status":"Pending"}
@@ -70,4 +71,12 @@ export const readEventSchema = z.object({
   conversationId: z.number(),
   userId: z.number(),
   timestamp: z.string()
+})
+
+// {"type":"Conversation","id":2,"createdAt":"2024-10-26T17:43:23","lastMessageAt":"2024-10-26T17:43:23"}
+export const requestConversationsSchema = z.object({
+  type: z.literal("Conversation"),
+  id: z.number(),
+  createdAt: z.string(),
+  lastMessageAt: z.string()
 })

@@ -1,8 +1,13 @@
 import Background from "./Background";
 import useWebsocketSetup from "../store/hooks/useWebsocket";
+import { useState } from "react";
 
 export default function WebsocketTesting() {
-  const { handleSendMessage, sendFriendRequest, loading } = useWebsocketSetup();
+  const { handleSendMessage, sendFriendRequest, requestConversations, inviteUsers, loading } =
+    useWebsocketSetup();
+
+  const [inviteUser, setInviteUser] = useState("");
+
   return (
     <>
       <Background>
@@ -20,20 +25,42 @@ export default function WebsocketTesting() {
           </button>
           <button
             onClick={() => {
-              sendFriendRequest("kkk");
+              sendFriendRequest(inviteUser);
             }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
-            Send Friend Req to username kkk
+            Send Friend Req to username {inviteUser}
           </button>
           <button
             onClick={() => {
-              sendFriendRequest("jjj");
+              sendFriendRequest(inviteUser);
             }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
-            Accept Friend Req to username jjj
+            Accept Friend Req to username {inviteUser}
           </button>
+          <button
+            onClick={() => {
+              requestConversations();
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Request Conversations
+          </button>
+          <button
+            onClick={() => {
+              inviteUsers([inviteUser]);
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Invite {inviteUser ? inviteUser : "???"} to conversation
+          </button>
+          <input
+            type="text"
+            placeholder="Enter Invite User"
+            onChange={(e) => setInviteUser(e.target.value)}
+            className="px-3 py-5 focus:outline-none bg-offwhite text-main-black rounded-sm"
+          />
         </div>
       </Background>
     </>

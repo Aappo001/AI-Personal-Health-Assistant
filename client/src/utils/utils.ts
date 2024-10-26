@@ -74,7 +74,6 @@ export const getUserIdFromUsername = async (username: string): Promise<number | 
   }
 
   return parsedUser.data.id
-
 }
 
 const mainColors = [

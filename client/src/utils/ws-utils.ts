@@ -8,10 +8,29 @@ export const wsSendFriendRequest = (ws: WebSocket, friendId: number) => {
       );
 }
 
+export const wsRequestConversations = (ws: WebSocket) => {
+    console.log("Requesting conversations...");
+    ws.send(JSON.stringify({
+        type: "RequestConversations",
+        // last_message_at: null,
+        // message_num: 10
+    }))
+}
+
+export const wsInviteUsersToConvo = (ws: WebSocket, ids: number[]) => {
+    console.log("Creating conversation..");
+    ws.send(JSON.stringify({
+        type: "InviteUsers",
+        conversation_id: null,
+        invitees: ids
+
+    }))
+}
+
 export const SocketResponse = {
     FriendRequest: "FriendRequest",
     Message: "Message",
-    Generic: "Generic"
+    Generic: "Generic",
+    Invite: "Invite",
+    Conversation: "Conversation"
 }
-
-// {"type":"FriendRequest","sender_id":1,"receiver_id":2,"created_at":"2024-10-26T04:00:40","status":"Pending"}

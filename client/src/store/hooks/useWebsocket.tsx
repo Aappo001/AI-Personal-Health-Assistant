@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { getJwt, getUserIdFromUsername } from "../../utils/utils";
-import { wsSendFriendRequest, SocketResponse } from "../../utils/ws-utils";
+import {
+  wsSendFriendRequest,
+  SocketResponse,
+  wsRequestConversations,
+  wsInviteUsersToConvo,
+} from "../../utils/ws-utils";
 
 const handleMessage = (event: MessageEvent) => {
   console.log("Received websocket response");
@@ -20,11 +25,16 @@ const handleMessage = (event: MessageEvent) => {
     case SocketResponse.Generic:
       console.log(`Received Generic Message: ${data.message}`);
       break;
+    case SocketResponse.Invite:
+      console.log(`Received Invite Message from user id ${data.inviter}`);
+      break;
+    case SocketResponse.Conversation:
+      console.log(`User present in conversation with id ${data.id}`);
+      break;
     default:
       console.log(`Unknown SocketResponseType: ${type}`);
+      console.log(JSON.stringify(data));
   }
-
-  console.log(JSON.stringify(data));
 };
 
 export default function useWebsocketSetup() {
@@ -77,6 +87,38 @@ export default function useWebsocketSetup() {
           wsSendFriendRequest(socketRef.current, id);
         })
         .catch((err) => console.log(err));
+    },
+
+    requestConversations: () => {
+      if (!socketRef.current) {
+        console.error("Error: Websocket not initialized");
+        return;
+      }
+      wsRequestConversations(socketRef.current);
+    },
+
+    inviteUsers: (usernames: string[]) => {
+      if (!socketRef.current) {
+        console.error("Error: Websocket not initialized");
+        return;
+      }
+      console.log(`InviteUsers input: ${usernames}`);
+
+      // create an array of promises, so that the requests can run concurrently using Promise.all()
+      const getIdPromises: Promise<number | undefined>[] = [];
+      usernames.forEach((username) => getIdPromises.push(getUserIdFromUsername(username)));
+
+      // fetch all user ids, filter undefined results
+      let friendIds: number[] = [];
+      Promise.all(getIdPromises)
+        .then((ids) => {
+          friendIds = ids.filter((id) => id !== undefined);
+          //@ts-expect-error it thinks socketRef is null for some reason
+          wsInviteUsersToConvo(socketRef.current, friendIds);
+        })
+        .catch((err) => {
+          console.log(`Error getting ids from usernames: ${err}`);
+        });
     },
 
     loading,
