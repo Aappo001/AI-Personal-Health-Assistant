@@ -35,7 +35,7 @@ use tower_http::{
 
 use chat::{
     connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
-    query_model,
+    query_model, get_ai_models,
 };
 use cli::Args;
 use scc::HashMap;

@@ -15,8 +15,7 @@ use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
-use tracing::{error, info, info_span, instrument, warn};
-use validator::ValidateRequired;
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     chat::{query_model, Conversation},
@@ -25,7 +24,7 @@ use crate::{
     AppState,
 };
 
-use super::{conversation, create_conversation, ChatMessage, ReadEvent, StreamMessage};
+use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -105,6 +104,10 @@ pub enum SocketResponse {
         created_at: chrono::NaiveDateTime,
         status: FriendRequestStatus,
     },
+    FriendData{
+        id: i64,
+        created_at: NaiveDateTime,
+    },
     /// Error to inform the client
     Error(ErrorResponse),
     /// Read event to inform the client that messages before a given timestamp
@@ -171,6 +174,8 @@ enum SocketRequest {
     /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
+    /// Request a stream of the user's friends
+    RequestFriends,
 }
 
 /// A chat message sent by the client to the server
@@ -821,6 +826,26 @@ async fn handle_message(
                     .fetch(&state.pool);
                     while let Some(conversation) = query.next().await {
                         tx.send(SocketResponse::Conversation(conversation?))?;
+                    }
+                }
+                SocketRequest::RequestFriends => {
+                    let mut query = sqlx::query!(
+                        "SELECT * FROM friendships WHERE user1_id = ? OR user2_id = ?",
+                        user.id,
+                        user.id
+                    )
+                    .fetch(&state.pool);
+                    while let Some(friendship) = query.next().await {
+                        let friendship = friendship?;
+                        let friend_id = if friendship.user1_id == user.id {
+                            friendship.user2_id
+                        } else {
+                            friendship.user1_id
+                        };
+                        tx.send(SocketResponse::FriendData{
+                            id: friend_id,
+                            created_at: friendship.created_at,
+                        })?;
                     }
                 }
             }
