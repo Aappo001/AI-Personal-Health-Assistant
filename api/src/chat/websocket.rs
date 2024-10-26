@@ -88,7 +88,10 @@ pub enum SocketResponse {
     /// Conversation to be sent to the client
     Conversation(Conversation),
     /// The i64 is the id of the message to delete
-    DeleteMessage(i64),
+    DeleteMessage {
+        message_id: i64,
+        conversation_id: i64,
+    },
     /// Stream data from the AI model
     StreamData(StreamMessage),
     /// Invite to a conversation
@@ -145,8 +148,8 @@ enum SocketRequest {
     SendMessage(SendMessage),
     /// Edit a message in the conversation
     EditMessage(EditMessage),
-    /// The i64 is the id of the message to delete
-    DeleteMessage(i64),
+    /// Deleted a message in the conversation
+    DeleteMessage { message_id: i64 },
     /// Send, accept, reject, or revoke a friend request
     // Put all the friend request stuff in one enum variant
     // so its easier to handle on the frontend
@@ -167,15 +170,16 @@ enum SocketRequest {
         /// The users being invited to the conversation
         invitees: Box<[i64]>,
     },
-    /// Message has been read in given conversation
+    /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
-    ReadMessage(i64),
+    ReadMessage { conversation_id: i64 },
     /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
     /// Request data on a conversation with the given id
-    RequestConversation(i64),
+    RequestConversation { conversation_id: i64 },
+
     /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
@@ -470,7 +474,7 @@ async fn delete_message(
     pool: &SqlitePool,
     message_id: i64,
     user: &UserToken,
-) -> Result<(), AppError> {
+) -> Result<ChatMessage, AppError> {
     // Check if the message exists in the database
     let Some(message) = sqlx::query_as!(
         ChatMessage,
@@ -487,10 +491,13 @@ async fn delete_message(
         return Err(anyhow!("User does not have permission to delete message").into());
     }
     // Delete the message from the database
-    sqlx::query!("DELETE FROM messages WHERE id = ?", message.id)
-        .execute(pool)
-        .await?;
-    Ok(())
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "DELETE FROM messages WHERE id = ? RETURNING *",
+        message.id
+    )
+    .fetch_one(pool)
+    .await?)
 }
 
 /// Handle friend requests
@@ -784,10 +791,10 @@ async fn handle_message(
                     // Broadcast the edited message to all the users in the conversation
                     broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
                 }
-                SocketRequest::DeleteMessage(message_id) => {
-                    delete_message(&state.pool, message_id, user).await?;
+                SocketRequest::DeleteMessage { message_id } => {
+                    let deleted_message = delete_message(&state.pool, message_id, user).await?;
                     // Broadcast the deleted message to all the users in the conversation
-                    broadcast_event(state, SocketResponse::DeleteMessage(message_id)).await?;
+                    broadcast_event(state, SocketResponse::DeleteMessage { message_id: deleted_message.id, conversation_id: deleted_message.conversation_id }).await?;
                 }
                 SocketRequest::InviteUsers {
                     invitees,
@@ -811,7 +818,7 @@ async fn handle_message(
                 } => {
                     handle_friend_request(state, other_user_id, accept, user).await?;
                 }
-                SocketRequest::ReadMessage(conversation_id) => {
+                SocketRequest::ReadMessage { conversation_id } => {
                     read_event(&state.pool, conversation_id, user).await?;
                     broadcast_event(
                         state,
@@ -826,7 +833,7 @@ async fn handle_message(
                 SocketRequest::RequestMessages(request_message) => {
                     request_messages(&state.pool, &request_message, &socket.channel, user).await?;
                 }
-                SocketRequest::RequestConversation(conversation_id) => {
+                SocketRequest::RequestConversation { conversation_id } => {
                     if !sqlx::query!(
                         "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
                         conversation_id,
@@ -936,7 +943,7 @@ async fn handle_message(
 pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
-        SocketResponse::DeleteMessage(id) => *id,
+        SocketResponse::DeleteMessage { conversation_id, .. } => *conversation_id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
         SocketResponse::Invite {
