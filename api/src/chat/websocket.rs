@@ -104,7 +104,7 @@ pub enum SocketResponse {
         created_at: chrono::NaiveDateTime,
         status: FriendRequestStatus,
     },
-    FriendData{
+    FriendData {
         id: i64,
         created_at: NaiveDateTime,
     },
@@ -176,6 +176,8 @@ enum SocketRequest {
     RequestConversations(RequestConversation),
     /// Request a stream of the user's friends
     RequestFriends,
+    /// Request a stream of the user's friend requests
+    RequestFriendRequests,
 }
 
 /// A chat message sent by the client to the server
@@ -842,9 +844,27 @@ async fn handle_message(
                         } else {
                             friendship.user1_id
                         };
-                        tx.send(SocketResponse::FriendData{
+                        tx.send(SocketResponse::FriendData {
                             id: friend_id,
                             created_at: friendship.created_at,
+                        })?;
+                    }
+                }
+                SocketRequest::RequestFriendRequests => {
+                    let mut query = sqlx::query!(
+                        "SELECT * FROM friend_requests WHERE sender_id = ? or receiver_id = ?",
+                        user.id,
+                        user.id
+                    )
+                    .fetch(&state.pool);
+
+                    while let Some(friend_request) = query.next().await {
+                        let friend_request = friend_request?;
+                        tx.send(SocketResponse::FriendRequest {
+                            sender_id: friend_request.sender_id,
+                            receiver_id: friend_request.receiver_id,
+                            created_at: friend_request.created_at,
+                            status: FriendRequestStatus::Pending,
                         })?;
                     }
                 }
