@@ -13,6 +13,7 @@ import ChatMessagePage from "./components/ChatMessagePage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import ProfilePage from "./components/ProfilePage.tsx";
 import WebsocketTesting from "./components/WebsocketTesting.tsx";
+import AntiAuthGuard from "./components/AntiAuthGuard.tsx";
 
 const router = createBrowserRouter([
   {
@@ -22,7 +23,11 @@ const router = createBrowserRouter([
   },
   {
     path: "/login",
-    element: <Login />,
+    element: (
+      <AntiAuthGuard>
+        <Login />
+      </AntiAuthGuard>
+    ),
     errorElement: <PageNotFound />, //will load when an error or not found error occurs anywhere in the app
   },
   {
