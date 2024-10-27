@@ -16,7 +16,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicI64, Arc},
 };
 
 use anyhow::Result;
@@ -77,9 +77,19 @@ pub struct AppState {
 }
 
 #[derive(Clone, Debug)]
+/// The inner state of a user's socket connection.
 pub struct InnerSocket {
+    /// The sender half of the broadcast channel that we use to send messages to all
+    /// connections made by the same user
     channel: broadcast::Sender<chat::SocketResponse>,
-    ai_responding: Arc<AtomicBool>,
+    /// A flag that contains the conversation id of the conversation that the AI is currently
+    /// generating messages for.
+    /// This uses 0 as a sentinel value to represent that the AI is not currently generating
+    /// responses since conversation ids are all greater than 0. This would've been better
+    /// as an Arc<Option<AtomicI64>>, but that doesn't provide mutability. So the other
+    /// option is to use Arc<AtomicPtr<Option<i64>>> but that requires unsafe code to
+    /// manage the pointer.
+    ai_responding: Arc<AtomicI64>,
 }
 
 impl AppState {

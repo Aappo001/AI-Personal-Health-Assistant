@@ -1,6 +1,9 @@
 use std::{
     net::SocketAddr,
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::anyhow;
@@ -88,7 +91,10 @@ pub enum SocketResponse {
     /// Conversation to be sent to the client
     Conversation(Conversation),
     /// The i64 is the id of the message to delete
-    DeleteMessage(i64),
+    DeleteMessage {
+        message_id: i64,
+        conversation_id: i64,
+    },
     /// Stream data from the AI model
     StreamData(StreamMessage),
     /// Invite to a conversation
@@ -116,8 +122,13 @@ pub enum SocketResponse {
     /// Read event to inform the client that messages before a given timestamp
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
-    /// AI generation was canceled
-    CanceledGeneration,
+    /// AI generation was canceled in the conversation
+    CanceledGeneration {
+        conversation_id: i64,
+    },
+    /// Not for the client, just to cancel AI generation
+    /// internally on the server
+    InternalCanceledGeneration,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -145,8 +156,8 @@ enum SocketRequest {
     SendMessage(SendMessage),
     /// Edit a message in the conversation
     EditMessage(EditMessage),
-    /// The i64 is the id of the message to delete
-    DeleteMessage(i64),
+    /// Deleted a message in the conversation
+    DeleteMessage { message_id: i64 },
     /// Send, accept, reject, or revoke a friend request
     // Put all the friend request stuff in one enum variant
     // so its easier to handle on the frontend
@@ -167,15 +178,16 @@ enum SocketRequest {
         /// The users being invited to the conversation
         invitees: Box<[i64]>,
     },
-    /// Message has been read in given conversation
+    /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
-    ReadMessage(i64),
+    ReadMessage { conversation_id: i64 },
     /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
     /// Request data on a conversation with the given id
-    RequestConversation(i64),
+    RequestConversation { conversation_id: i64 },
+
     /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
@@ -261,7 +273,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                 user.id,
                 InnerSocket {
                     channel: tx,
-                    ai_responding: Arc::new(false.into()),
+                    ai_responding: Arc::new(AtomicI64::new(0)),
                 },
             )
             .await;
@@ -470,7 +482,7 @@ async fn delete_message(
     pool: &SqlitePool,
     message_id: i64,
     user: &UserToken,
-) -> Result<(), AppError> {
+) -> Result<ChatMessage, AppError> {
     // Check if the message exists in the database
     let Some(message) = sqlx::query_as!(
         ChatMessage,
@@ -487,10 +499,13 @@ async fn delete_message(
         return Err(anyhow!("User does not have permission to delete message").into());
     }
     // Delete the message from the database
-    sqlx::query!("DELETE FROM messages WHERE id = ?", message.id)
-        .execute(pool)
-        .await?;
-    Ok(())
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "DELETE FROM messages WHERE id = ? RETURNING *",
+        message.id
+    )
+    .fetch_one(pool)
+    .await?)
 }
 
 /// Handle friend requests
@@ -748,7 +763,9 @@ async fn handle_message(
                     send_message.conversation_id = Some(chat_message.conversation_id);
                     // Broadcast the newly saved message to all the users in the conversation
                     if send_message.ai_model_id.is_some() {
-                        socket.ai_responding.store(true, Ordering::SeqCst);
+                        socket
+                            .ai_responding
+                            .store(chat_message.conversation_id, Ordering::SeqCst);
                         // Query the AI model for a response and broadcast the user's message
                         // to the conversation at the same time
                         let (_, ai_message) = tokio::join!(
@@ -756,24 +773,36 @@ async fn handle_message(
                             async {
                                 tokio::select! {
                                     ai_message = query_model(state, &send_message) => {
-                                        ai_message
+                                        Some(ai_message)
                                     }
                                     _ = async {
                                         let mut rx = socket.channel.subscribe();
                                         while let Ok(msg) = rx.recv().await {
-                                            if let SocketResponse::CanceledGeneration = msg {
+                                            if let SocketResponse::InternalCanceledGeneration = msg {
                                                 break;
                                             }
                                         }
                                     } => {
-                                        Err(anyhow!("AI generation canceled").into())
+                                        let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                                        broadcast_event(
+                                            state,
+                                            SocketResponse::CanceledGeneration { conversation_id },
+                                        )
+                                        .await;
+                                        None
                                     }
                                 }
                             }
                         );
-                        socket.ai_responding.store(false, Ordering::SeqCst);
+                        socket.ai_responding.store(0, Ordering::SeqCst);
                         // Broadcast the AI model's response to the conversation
-                        broadcast_event(state, SocketResponse::Message(ai_message?)).await?;
+                        match ai_message {
+                            Some(ai_message) => {
+                                broadcast_event(state, SocketResponse::Message(ai_message?))
+                                    .await?;
+                            }
+                            None => return Ok(()),
+                        }
                     } else {
                         broadcast_event(state, SocketResponse::Message(chat_message.clone()))
                             .await?;
@@ -784,10 +813,17 @@ async fn handle_message(
                     // Broadcast the edited message to all the users in the conversation
                     broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
                 }
-                SocketRequest::DeleteMessage(message_id) => {
-                    delete_message(&state.pool, message_id, user).await?;
+                SocketRequest::DeleteMessage { message_id } => {
+                    let deleted_message = delete_message(&state.pool, message_id, user).await?;
                     // Broadcast the deleted message to all the users in the conversation
-                    broadcast_event(state, SocketResponse::DeleteMessage(message_id)).await?;
+                    broadcast_event(
+                        state,
+                        SocketResponse::DeleteMessage {
+                            message_id: deleted_message.id,
+                            conversation_id: deleted_message.conversation_id,
+                        },
+                    )
+                    .await?;
                 }
                 SocketRequest::InviteUsers {
                     invitees,
@@ -811,7 +847,7 @@ async fn handle_message(
                 } => {
                     handle_friend_request(state, other_user_id, accept, user).await?;
                 }
-                SocketRequest::ReadMessage(conversation_id) => {
+                SocketRequest::ReadMessage { conversation_id } => {
                     read_event(&state.pool, conversation_id, user).await?;
                     broadcast_event(
                         state,
@@ -826,7 +862,7 @@ async fn handle_message(
                 SocketRequest::RequestMessages(request_message) => {
                     request_messages(&state.pool, &request_message, &socket.channel, user).await?;
                 }
-                SocketRequest::RequestConversation(conversation_id) => {
+                SocketRequest::RequestConversation { conversation_id } => {
                     if !sqlx::query!(
                         "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
                         conversation_id,
@@ -911,8 +947,13 @@ async fn handle_message(
                     }
                 }
                 SocketRequest::CancelGeneration => {
-                    if socket.ai_responding.load(Ordering::SeqCst) {
-                        socket.channel.send(SocketResponse::CanceledGeneration)?;
+                    // Use 0 as a sentinel value to indicate that the AI generation
+                    // is not running for the current user
+                    let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                    if conversation_id > 0 {
+                        socket
+                            .channel
+                            .send(SocketResponse::InternalCanceledGeneration)?;
                     } else {
                         socket.channel.send(SocketResponse::Error(
                             AppError::from(anyhow!("No ai response to cancel")).into(),
@@ -936,14 +977,15 @@ async fn handle_message(
 pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
-        SocketResponse::DeleteMessage(id) => *id,
+        SocketResponse::DeleteMessage {
+            conversation_id, ..
+        } => *conversation_id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
         SocketResponse::Invite {
-            inviter: _,
-            conversation_id,
-            invited_at: _,
+            conversation_id, ..
         } => *conversation_id,
+        SocketResponse::CanceledGeneration { conversation_id } => *conversation_id,
         _ => unreachable!("uuhhh how"),
     };
     let users = sqlx::query!(
@@ -980,8 +1022,13 @@ async fn send_message(
     // is serializable and will not panic
     // All responses should be serialized to JSON
     // and sent as Text
-    sender
-        .send(Message::Text(serde_json::to_string(&msg).unwrap()))
-        .await?;
+    match msg {
+        SocketResponse::InternalCanceledGeneration => {}
+        _ => {
+            sender
+                .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                .await?;
+        }
+    }
     Ok(true)
 }
