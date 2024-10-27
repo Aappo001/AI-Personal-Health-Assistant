@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     response::{IntoResponse, Json, Response},
 };
-use dotenv::var;
+use dotenvy::var;
 use futures::StreamExt;
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
