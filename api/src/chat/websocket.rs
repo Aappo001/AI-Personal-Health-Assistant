@@ -762,20 +762,42 @@ async fn handle_message(
                     let chat_message = save_message(&state.pool, &send_message, user).await?;
                     send_message.conversation_id = Some(chat_message.conversation_id);
                     // Broadcast the newly saved message to all the users in the conversation
-                    if send_message.ai_model_id.is_some() {
+                    if let Some(ai_model_id) = send_message.ai_model_id {
                         socket
                             .ai_responding
                             .store(chat_message.conversation_id, Ordering::SeqCst);
-                        // Query the AI model for a response and broadcast the user's message
-                        // to the conversation at the same time
+                        // `tokio::join!` allows us to run multiple futures to completion at the same time
+                        // In this case, querying the AI model for a response and broadcasting the user's 
+                        // messages to the conversation at the same time
                         let (_, ai_message) = tokio::join!(
                             broadcast_event(state, SocketResponse::Message(chat_message.clone())),
+                            // Wrap the AI model query in an async block to turn it into a
+                            // future that can be used with `tokio::join!`
                             async {
+                                // `tokio::select!` is used to wait for either the AI model's
+                                // response or for the user to cancel the AI generation
+                                // Which ever one comes first will be returned and the other will
+                                // be aborted
                                 tokio::select! {
                                     ai_message = query_model(state, &send_message) => {
-                                        Some(ai_message)
+                                        let ai_message = ai_message?;
+                                        // Save the AI model's response to the database
+                                        // This is done outside of the `query_model` function to
+                                        // prevent the message from being lost if the user cancels
+                                        // the AI generation while writing to the database
+                                        Ok(sqlx::query_as!(
+                                            ChatMessage,
+                                            "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
+                                            send_message.conversation_id,
+                                            ai_message,
+                                            ai_model_id
+                                        )
+                                        .fetch_one(&state.pool)
+                                        .await?)
                                     }
                                     _ = async {
+                                        // Subscribe to the broadcast channel to listen for the
+                                        // user canceling the AI generation
                                         let mut rx = socket.channel.subscribe();
                                         while let Ok(msg) = rx.recv().await {
                                             if let SocketResponse::InternalCanceledGeneration = msg {
@@ -788,8 +810,11 @@ async fn handle_message(
                                             state,
                                             SocketResponse::CanceledGeneration { conversation_id },
                                         )
-                                        .await;
-                                        None
+                                        .await?;
+                                        // Return an error to prevent the AI model's response from being broadcasted
+                                        // We use an error instead of an option here to be able to
+                                        // short circuit the function in both branches using `?`
+                                        Err(anyhow!("AI generation was canceled").into())
                                     }
                                 }
                             }
@@ -797,11 +822,17 @@ async fn handle_message(
                         socket.ai_responding.store(0, Ordering::SeqCst);
                         // Broadcast the AI model's response to the conversation
                         match ai_message {
-                            Some(ai_message) => {
-                                broadcast_event(state, SocketResponse::Message(ai_message?))
-                                    .await?;
+                            Ok(ai_message) => {
+                                broadcast_event(state, SocketResponse::Message(ai_message)).await?;
                             }
-                            None => return Ok(()),
+                            // Check for special error case where the AI generation was canceled
+                            Err(AppError::Generic(e))
+                                if e.to_string() == "AI generation was canceled" =>
+                            {
+                                // Not actually an error so return Ok
+                                return Ok(())
+                            }
+                            Err(e) => return Err(e),
                         }
                     } else {
                         broadcast_event(state, SocketResponse::Message(chat_message.clone()))
