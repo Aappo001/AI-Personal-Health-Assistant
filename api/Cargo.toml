@@ -52,3 +52,5 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 validator = { version = "0.18.1", features = ["derive"] }
 console-subscriber = "0.4.1"
+rustls-acme = { version = "0.11.1", features = ["axum"] }
+axum-server = "0.7.1"
