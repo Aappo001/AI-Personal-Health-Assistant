@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use dotenv_codegen::dotenv;
+use dotenvy_macro::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use macros::response;
 use password_auth::VerifyError;

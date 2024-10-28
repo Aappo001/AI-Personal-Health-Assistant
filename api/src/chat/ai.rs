@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     response::{IntoResponse, Json, Response},
 };
-use dotenv::var;
+use dotenvy::var;
 use futures::StreamExt;
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
@@ -34,7 +34,8 @@ pub struct AiModel {
 }
 
 /// Query the AI model with the messages in the conversation
-pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<ChatMessage, AppError> {
+/// Return's the ai's response
+pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<String, AppError> {
     let model_id = message.ai_model_id.expect("Model ID should be provided");
     let conversation_id = message
         .conversation_id
@@ -113,7 +114,9 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
         .map_err(AppError::from)?
         .json_array_stream::<serde_json::Value>(2048);
 
+    // The accumulated response from the AI model
     let mut res_content = String::new();
+
     while let Some(mut bytes) = response.next().await {
         match bytes {
             Ok(ref mut bytes) => {
@@ -129,6 +132,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
                     }),
                 )
                 .await?;
+                // Accumulate the response content
                 res_content += bytes["choices"][0]["delta"]["content"]
                     .as_str()
                     .unwrap_or("");
@@ -136,16 +140,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
             Err(e) => return Err(AppError::from(e)),
         }
     }
-    // Save the final response to the database
-    Ok(sqlx::query_as!(
-        ChatMessage,
-        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
-        conversation_id,
-        res_content,
-        model_id
-    )
-    .fetch_one(&state.pool)
-    .await?)
+    Ok(res_content)
 }
 
 /// Returns all the AI models in the database

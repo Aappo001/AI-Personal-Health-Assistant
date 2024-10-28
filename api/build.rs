@@ -1,6 +1,6 @@
 use std::{env::current_dir, fs::File, io::Write, path::PathBuf};
 
-use dotenv::dotenv;
+use dotenvy::{dotenv, var};
 use sqlx::SqlitePool;
 
 #[cfg(windows)]
@@ -17,7 +17,7 @@ const PROTOCOL: &str = "sqlite://";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=migrations");
     let db_file = match dotenv() {
-        Ok(_) => PathBuf::from(match dotenv::var("DATABASE_URL") {
+        Ok(_) => PathBuf::from(match var("DATABASE_URL") {
             Ok(url) => {
                 if url.starts_with(PROTOCOL) {
                     url.strip_prefix(PROTOCOL).unwrap().to_string()
