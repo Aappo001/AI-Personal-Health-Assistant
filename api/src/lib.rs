@@ -86,8 +86,8 @@ pub struct InnerSocket {
     /// generating messages for.
     /// This uses 0 as a sentinel value to represent that the AI is not currently generating
     /// responses since conversation ids are all greater than 0. This would've been better
-    /// as an Arc<Option<AtomicI64>>, but that doesn't provide mutability. So the other
-    /// option is to use Arc<AtomicPtr<Option<i64>>> but that requires unsafe code to
+    /// as an `Arc<Option<AtomicI64>>`, but that doesn't provide mutability. So the other
+    /// option is to use `Arc<AtomicPtr<Option<i64>>>` but that requires unsafe code to
     /// manage the pointer.
     ai_responding: Arc<AtomicI64>,
 }
