@@ -130,6 +130,7 @@ pub async fn create_user(
 
 pub async fn check_username(
     State(pool): State<SqlitePool>,
+    user: Option<JwtAuth<UserToken>>,
     Path(username): Path<String>,
 ) -> Result<Response, AppError> {
     if username.len() < 3 || username.len() > 20 || validate_username(&username).is_err() {
@@ -137,6 +138,11 @@ pub async fn check_username(
             StatusCode::BAD_REQUEST,
             "Invalid username".into(),
         )));
+    }
+    // If the user is authenticated, check if the username is the same
+    // as the one already in the database. If it is, then that is allowed
+    if user.is_some_and(|JwtAuth(user)| user.username == username) {
+        return Ok(StatusCode::OK.into_response());
     }
     match sqlx::query!("SELECT username FROM users WHERE username = ?", username)
         .fetch_optional(&pool)
@@ -153,6 +159,7 @@ pub async fn check_username(
 
 pub async fn check_email(
     State(pool): State<SqlitePool>,
+    user: Option<JwtAuth<UserToken>>,
     Path(email): Path<String>,
 ) -> Result<Response, AppError> {
     let email_regex = regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").unwrap();
@@ -161,6 +168,17 @@ pub async fn check_email(
             StatusCode::BAD_REQUEST,
             "Invalid email".into(),
         )));
+    }
+    // If the user is authenticated, check if the email is the same
+    // as the one already in the database. If it is, then that is allowed
+    if let Some(JwtAuth(user)) = user {
+        if sqlx::query!("SELECT email FROM users WHERE id = ?", user.id)
+            .fetch_optional(&pool)
+            .await?
+            .is_some_and(|row| row.email == email)
+        {
+            return Ok(StatusCode::OK.into_response());
+        }
     }
     match sqlx::query!("SELECT email FROM users WHERE email = ?", email)
         .fetch_optional(&pool)
