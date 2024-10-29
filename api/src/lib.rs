@@ -74,6 +74,8 @@ pub struct AppState {
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
+    // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
+    // that the AI is currently generating messages for.
 }
 
 #[derive(Clone, Debug)]

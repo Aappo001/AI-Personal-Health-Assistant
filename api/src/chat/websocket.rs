@@ -759,15 +759,31 @@ async fn handle_message(
             info!("Received {:?}", msg);
             match msg {
                 SocketRequest::SendMessage(mut send_message) => {
+                    // Check if there is an AI generation in progress started by the user in the
+                    // same conversation and prevent them from sending a new message if there is
+                    if send_message
+                        .conversation_id
+                        .is_some_and(|id| id == socket.ai_responding.load(Ordering::SeqCst))
+                    {
+                        return Err(anyhow!("AI generation is already in progress. Please cancel generation in this conversation or wait until it is complete").into());
+                    }
+
                     let chat_message = save_message(&state.pool, &send_message, user).await?;
                     send_message.conversation_id = Some(chat_message.conversation_id);
 
-                    // Broadcast the newly saved message to all the users in the conversation
                     let Some(ai_model_id) = send_message.ai_model_id else {
-                        broadcast_event(state, SocketResponse::Message(chat_message))
-                            .await?;
-                        return Ok(())
+                        // There is no model to query, so broadcast the newly saved message
+                        // to all the users in the conversation and return
+                        broadcast_event(state, SocketResponse::Message(chat_message)).await?;
+                        return Ok(());
                     };
+
+                    // The user is explicitly trying to query the model, so check if there is
+                    // already an AI generation in progress in any conversation they are a part of
+                    // and prevent them from starting a new one
+                    if socket.ai_responding.load(Ordering::SeqCst) != 0 {
+                        return Err(anyhow!("AI generation is already in progress. Please cancel generation or wait before making another query").into());
+                    }
 
                     socket
                         .ai_responding
