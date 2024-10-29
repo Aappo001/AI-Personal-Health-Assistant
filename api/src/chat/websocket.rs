@@ -117,6 +117,8 @@ pub enum SocketResponse {
         id: i64,
         created_at: NaiveDateTime,
     },
+    /// Search results from a message query
+    SearchMessage(ChatMessage),
     /// Error to inform the client
     Error(ErrorResponse),
     /// Read event to inform the client that messages before a given timestamp
@@ -177,6 +179,12 @@ enum SocketRequest {
         conversation_id: Option<i64>,
         /// The users being invited to the conversation
         invitees: Box<[i64]>,
+    },
+    /// Request to search messages in given conversations
+    /// that match the query string
+    SearchMessages {
+        conversations: Box<[i64]>,
+        query: String,
     },
     /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
@@ -1008,6 +1016,9 @@ async fn handle_message(
                             AppError::from(anyhow!("No ai response to cancel")).into(),
                         ))?;
                     }
+                }
+                SocketRequest::SearchMessages { conversations, query } => {
+                    todo!()
                 }
             }
         }
