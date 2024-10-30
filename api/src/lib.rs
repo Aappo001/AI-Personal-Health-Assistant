@@ -16,7 +16,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     str::FromStr,
-    sync::Arc,
+    sync::{atomic::AtomicI64, Arc},
 };
 
 use anyhow::Result;
@@ -34,20 +34,19 @@ use tower_http::{
 };
 
 use chat::{
-    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations,
-    query_model,
+    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations, get_ai_models,
 };
 use cli::Args;
 use scc::HashMap;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
 use users::{
     authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id,
-    get_user_by_username, get_user_from_token,
+    get_user_by_username, get_user_from_token, update_user,
 };
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
@@ -68,13 +67,31 @@ pub struct AppState {
     client: reqwest::Client,
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
-    user_sockets: Arc<HashMap<i64, broadcast::Sender<chat::SocketResponse>>>,
+    user_sockets: Arc<HashMap<i64, InnerSocket>>,
     /// This is a map that keeps track of how many connections each user has. We use this to
     /// determine when we should remove the user from the `user_sockets` map.
     user_connections: Arc<HashMap<i64, usize>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
+    // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
+    // that the AI is currently generating messages for.
+}
+
+#[derive(Clone, Debug)]
+/// The inner state of a user's socket connection.
+pub struct InnerSocket {
+    /// The sender half of the broadcast channel that we use to send messages to all
+    /// connections made by the same user
+    channel: broadcast::Sender<chat::SocketResponse>,
+    /// A flag that contains the conversation id of the conversation that the AI is currently
+    /// generating messages for.
+    /// This uses 0 as a sentinel value to represent that the AI is not currently generating
+    /// responses since conversation ids are all greater than 0. This would've been better
+    /// as an `Arc<Option<AtomicI64>>`, but that doesn't provide mutability. So the other
+    /// option is to use `Arc<AtomicPtr<Option<i64>>>` but that requires unsafe code to
+    /// manage the pointer.
+    ai_responding: Arc<AtomicI64>,
 }
 
 impl AppState {
@@ -139,10 +156,12 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/users/username/:username", get(get_user_by_username))
         .route("/check/username/:username", get(check_username))
         .route("/check/email/:email", get(check_email))
+        .route("/account", post(update_user))
         .route("/account", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
+        .route("/chat/models", get(get_ai_models))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);

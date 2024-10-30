@@ -1,6 +1,6 @@
 use proc_macro2::{TokenStream, Span};
 use quote::quote;
-use syn::{parse, parse_macro_input, punctuated::Punctuated, token::Comma, Expr, Ident, LitStr, Token, TypeParam};
+use syn::{punctuated::Punctuated, token::Comma, Expr, Ident, TypeParam};
 
 pub fn response_gen_impl(input: Punctuated<Expr, Comma>) -> TokenStream {
     let message_literal = input.first().unwrap();

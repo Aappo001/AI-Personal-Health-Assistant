@@ -1,9 +1,14 @@
-use dotenv::var;
+use axum::{
+    extract::State,
+    response::{IntoResponse, Json, Response},
+};
+use dotenvy::var;
 use futures::StreamExt;
-use reqwest::header;
+use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
 use serde_json::json;
+use sqlx::SqlitePool;
 
 use crate::{chat::ChatMessage, error::AppError, AppState};
 
@@ -21,8 +26,16 @@ pub struct StreamMessage {
     pub message: String,
 }
 
+/// An AI model that can be used to generate responses
+#[derive(Serialize)]
+pub struct AiModel {
+    pub id: i64,
+    pub name: String,
+}
+
 /// Query the AI model with the messages in the conversation
-pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<ChatMessage, AppError> {
+/// Return's the ai's response
+pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<String, AppError> {
     let model_id = message.ai_model_id.expect("Model ID should be provided");
     let conversation_id = message
         .conversation_id
@@ -44,19 +57,21 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
     });
     // Populate the messages array with the messages in the conversation
     if let Some(req_messages) = body["messages"].as_array_mut() {
-        let db_messages = sqlx::query!(
+        // Query the messages as a stream to save memory
+        // This saves a tong on longer conversations
+        let mut db_messages = sqlx::query!(
             "SELECT message, user_id, ai_model_id FROM messages WHERE conversation_id = ?",
             conversation_id
         )
-        .fetch_all(&state.pool)
-        .await?;
+        .fetch(&state.pool);
 
         // If we don't alternate between user and assistant messages, the AI will give us an error and
         // get stuck so we need to concatenate consecutive user and system messages together
         let mut last_role;
         let mut cur_role = "user";
         let mut cur_content = String::new();
-        for message in db_messages {
+        while let Some(message) = db_messages.next().await {
+            let message = message?;
             last_role = cur_role;
             cur_role = if message.user_id.is_some() {
                 "user"
@@ -99,7 +114,9 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
         .map_err(AppError::from)?
         .json_array_stream::<serde_json::Value>(2048);
 
+    // The accumulated response from the AI model
     let mut res_content = String::new();
+
     while let Some(mut bytes) = response.next().await {
         match bytes {
             Ok(ref mut bytes) => {
@@ -115,6 +132,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
                     }),
                 )
                 .await?;
+                // Accumulate the response content
                 res_content += bytes["choices"][0]["delta"]["content"]
                     .as_str()
                     .unwrap_or("");
@@ -122,14 +140,19 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Chat
             Err(e) => return Err(AppError::from(e)),
         }
     }
-    // Save the final response to the database
-    Ok(sqlx::query_as!(
-        ChatMessage,
-        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
-        conversation_id,
-        res_content,
-        model_id
+    Ok(res_content)
+}
+
+/// Returns all the AI models in the database
+pub async fn get_ai_models(State(pool): State<SqlitePool>) -> Result<Response, AppError> {
+    Ok((
+        StatusCode::OK,
+        Json(
+            sqlx::query_as!(AiModel, "SELECT * FROM ai_models")
+                .fetch_all(&pool)
+                .await
+                .map_err(AppError::from)?,
+        ),
     )
-    .fetch_one(&state.pool)
-    .await?)
+        .into_response())
 }

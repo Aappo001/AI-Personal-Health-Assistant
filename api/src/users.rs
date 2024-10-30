@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use dotenv_codegen::dotenv;
+use dotenvy_macro::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use macros::response;
 use password_auth::VerifyError;
@@ -130,6 +130,7 @@ pub async fn create_user(
 
 pub async fn check_username(
     State(pool): State<SqlitePool>,
+    user: Option<JwtAuth<UserToken>>,
     Path(username): Path<String>,
 ) -> Result<Response, AppError> {
     if username.len() < 3 || username.len() > 20 || validate_username(&username).is_err() {
@@ -137,6 +138,11 @@ pub async fn check_username(
             StatusCode::BAD_REQUEST,
             "Invalid username".into(),
         )));
+    }
+    // If the user is authenticated, check if the username is the same
+    // as the one already in the database. If it is, then that is allowed
+    if user.is_some_and(|JwtAuth(user)| user.username == username) {
+        return Ok(StatusCode::OK.into_response());
     }
     match sqlx::query!("SELECT username FROM users WHERE username = ?", username)
         .fetch_optional(&pool)
@@ -153,6 +159,7 @@ pub async fn check_username(
 
 pub async fn check_email(
     State(pool): State<SqlitePool>,
+    user: Option<JwtAuth<UserToken>>,
     Path(email): Path<String>,
 ) -> Result<Response, AppError> {
     let email_regex = regex::Regex::new(r"^[^@\s]+@[^@\s]+\.[^@\s]+$").unwrap();
@@ -161,6 +168,17 @@ pub async fn check_email(
             StatusCode::BAD_REQUEST,
             "Invalid email".into(),
         )));
+    }
+    // If the user is authenticated, check if the email is the same
+    // as the one already in the database. If it is, then that is allowed
+    if let Some(JwtAuth(user)) = user {
+        if sqlx::query!("SELECT email FROM users WHERE id = ?", user.id)
+            .fetch_optional(&pool)
+            .await?
+            .is_some_and(|row| row.email == email)
+        {
+            return Ok(StatusCode::OK.into_response());
+        }
     }
     match sqlx::query!("SELECT email FROM users WHERE email = ?", email)
         .fetch_optional(&pool)
@@ -281,12 +299,6 @@ pub async fn authenticate_user(
         exp: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
     };
 
-    let token = encode(
-        &Header::default(),
-        &token_data,
-        &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
-    )?;
-
     let user = SessionUser {
         id: existing_user.id,
         username: existing_user.username,
@@ -297,7 +309,10 @@ pub async fn authenticate_user(
 
     Ok((
         StatusCode::OK,
-        [(header::AUTHORIZATION, format!("Bearer {}", token))],
+        [(
+            header::AUTHORIZATION,
+            format!("Bearer {}", generate_jwt(&token_data)?),
+        )],
         // Don't need to set the content-type header since axum does
         // it for us when we wrap the body in a `Json` struct
         Json(response!("Successfully authenticated", user)),
@@ -415,6 +430,58 @@ pub async fn get_user_by_username(
     Ok((StatusCode::OK, Json(user)).into_response())
 }
 
+pub async fn update_user(
+    State(pool): State<SqlitePool>,
+    JwtAuth(user): JwtAuth<UserToken>,
+    AppJson(user_data): AppJson<CreateUser>,
+) -> Result<Response, AppError> {
+    // Check the user's password
+    let Some(stored_user) = sqlx::query!("SELECT password_hash FROM users WHERE id = ?", user.id)
+        .fetch_optional(&pool)
+        .await?
+    else {
+        return Err(AppError::UserError((
+            StatusCode::NOT_FOUND,
+            "User does not exist".into(),
+        )));
+    };
+    if password_auth::verify_password(user_data.password, &stored_user.password_hash).is_err() {
+        return Err(AppError::UserError((
+            StatusCode::UNAUTHORIZED,
+            "Invalid password".into(),
+        )));
+    }
+
+    // Update the user in the database
+    let user = sqlx::query_as!(
+        SessionUser,
+        "UPDATE users SET first_name = ?, last_name = ?, email = ?, username = ? WHERE id = ? RETURNING id, username, email, first_name, last_name",
+        user_data.first_name,
+        user_data.last_name,
+        user_data.email,
+        user_data.username,
+        user.id
+    ).fetch_one(&pool).await?;
+
+    // Generate a new token with the updated user data
+    let token_data = UserToken {
+        id: user.id,
+        username: user.username.clone(),
+        exp: (chrono::Utc::now() + chrono::Duration::days(1)).timestamp(),
+    };
+
+    Ok((
+        StatusCode::OK,
+        // Give the user a new JWT
+        [(
+            header::AUTHORIZATION,
+            format!("Bearer {}", generate_jwt(&token_data)?),
+        )],
+        Json(response!("User successfully updated", user)),
+    )
+        .into_response())
+}
+
 pub async fn delete_user(
     State(pool): State<SqlitePool>,
     JwtAuth(user): JwtAuth<UserToken>,
@@ -446,4 +513,12 @@ pub async fn delete_user(
         .await?;
 
     Ok((StatusCode::OK, Json(response!("User deleted"))).into_response())
+}
+
+fn generate_jwt(token_data: &UserToken) -> Result<String, AppError> {
+    Ok(encode(
+        &Header::default(),
+        token_data,
+        &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
+    )?)
 }

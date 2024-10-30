@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use crate::utils::data_dir;
-use dotenv::var;
+use dotenvy::var;
 
 /// The backend API for the chat application
 #[derive(Parser)]
@@ -9,11 +9,14 @@ use dotenv::var;
 pub struct Args {
     /// The URL of the database to connect to
     /// Will default to DATABASE_URL variable inside .env file if a .env file is found in the current project directory, otherwise `dirs::data_dir` if not provided
-    #[arg(short, long, default_value_t = var("DATABASE_URL").unwrap_or(default_db_url()))]
+    #[arg(short='u', long, default_value_t = var("DATABASE_URL").unwrap_or(default_db_url()))]
     pub db_url: String,
     /// The port to listen on for connections
     #[arg(short, long, default_value_t = 3000)]
     pub port: u16,
+    /// Enable trace debugging for tokio-console
+    #[arg(short, long)]
+    pub debug: bool,
 }
 
 /// We know that windows paths use `\` instead of `/` as file separators and file names cannot contain `\` inside them.

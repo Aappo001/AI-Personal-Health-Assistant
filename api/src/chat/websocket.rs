@@ -1,4 +1,10 @@
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc,
+    },
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -15,17 +21,16 @@ use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
-use tracing::{error, info, info_span, instrument, warn};
-use validator::ValidateRequired;
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     chat::{query_model, Conversation},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
-    AppState,
+    AppState, InnerSocket,
 };
 
-use super::{conversation, create_conversation, ChatMessage, ReadEvent, StreamMessage};
+use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -80,11 +85,16 @@ pub async fn connect_conversation(
 #[serde(tag = "type")]
 pub enum SocketResponse {
     /// Message to be sent to the client
+    /// This can either be a newly sent message
+    /// or an edited message
     Message(ChatMessage),
     /// Conversation to be sent to the client
     Conversation(Conversation),
     /// The i64 is the id of the message to delete
-    DeleteMessage(i64),
+    DeleteMessage {
+        message_id: i64,
+        conversation_id: i64,
+    },
     /// Stream data from the AI model
     StreamData(StreamMessage),
     /// Invite to a conversation
@@ -103,11 +113,22 @@ pub enum SocketResponse {
         created_at: chrono::NaiveDateTime,
         status: FriendRequestStatus,
     },
+    FriendData {
+        id: i64,
+        created_at: NaiveDateTime,
+    },
     /// Error to inform the client
     Error(ErrorResponse),
     /// Read event to inform the client that messages before a given timestamp
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
+    /// AI generation was canceled in the conversation
+    CanceledGeneration {
+        conversation_id: i64,
+    },
+    /// Not for the client, just to cancel AI generation
+    /// internally on the server
+    InternalCanceledGeneration,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -135,8 +156,8 @@ enum SocketRequest {
     SendMessage(SendMessage),
     /// Edit a message in the conversation
     EditMessage(EditMessage),
-    /// The i64 is the id of the message to delete
-    DeleteMessage(i64),
+    /// Deleted a message in the conversation
+    DeleteMessage { message_id: i64 },
     /// Send, accept, reject, or revoke a friend request
     // Put all the friend request stuff in one enum variant
     // so its easier to handle on the frontend
@@ -157,33 +178,51 @@ enum SocketRequest {
         /// The users being invited to the conversation
         invitees: Box<[i64]>,
     },
-    /// Message has been read in given conversation
+    /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
-    ReadMessage(i64),
-    /// Requst the previous messages in the conversation
+    ReadMessage { conversation_id: i64 },
+    /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
-    /// Request the list of conversations the user is in
+    /// Request data on a conversation with the given id
+    RequestConversation { conversation_id: i64 },
+
+    /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
+    /// Request a stream of the user's friends
+    RequestFriends,
+    /// Request a stream of the user's friend requests
+    RequestFriendRequests,
+    /// Can be used to cancel an ongoing AI generation
+    CancelGeneration,
 }
 
-#[derive(Deserialize, Debug)]
+/// A chat message sent by the client to the server
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessage {
+    /// The id of the conversation the message is being sent to
+    /// If this is None, the client is sending the first message in a new conversation
     pub conversation_id: Option<i64>,
     pub message: String,
+    /// The id of the model to query
+    /// If this is none, the message will not be sent to the AI model
     pub ai_model_id: Option<i64>,
 }
 
+/// Edit a message in the conversation
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct EditMessage {
+    /// The id of the message to edit
     id: i64,
+    /// The new content of the message
     message: String,
 }
 
+/// A request for the previous messages in a conversation
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct RequestMessage {
@@ -196,12 +235,15 @@ struct RequestMessage {
     message_num: Option<i64>,
 }
 
+/// A request for conversations the user is in
+/// This api returns a stream of conversation the user is a part of
+/// only the most recent conversations with an id are returned
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct RequestConversation {
     /// The id of the last conversation the client received from the server
     /// If this is None, the client has not received any messages yet
-    conversation_id: Option<i64>,
+    last_message_at: Option<NaiveDateTime>,
     /// The maximum number of messages to request
     /// If this is None, the client is requesting 50 conversations
     message_num: Option<i64>,
@@ -212,6 +254,7 @@ struct RequestConversation {
 #[instrument]
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
+    let user = Arc::new(user);
 
     // Increase the number of connections the user has
     let mut user_connections = *state
@@ -224,17 +267,26 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     // This is the first connection the user has, so create a broadcast channel to start sending
     if user_connections == 1 {
         let (tx, _) = broadcast::channel(10);
-        let _ = state.user_sockets.insert_async(user.id, tx).await;
+        let _ = state
+            .user_sockets
+            .insert_async(
+                user.id,
+                InnerSocket {
+                    channel: tx,
+                    ai_responding: Arc::new(AtomicI64::new(0)),
+                },
+            )
+            .await;
     }
 
-    let channel = state
+    let socket = state
         .user_sockets
         .read_async(&user.id, |_, v| v.clone())
         .await
         .unwrap();
 
-    let mut rx = channel.subscribe();
-    let tx = channel.clone();
+    let mut rx = socket.channel.subscribe();
+    let tx = socket.channel.clone();
 
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
@@ -251,7 +303,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                         break;
                     }
                     Err(e) => {
-                        error!("Error sending messae: {}", e);
+                        error!("Error sending message: {}", e);
                         sender.send(Message::Text(e.to_string())).await.unwrap();
                     }
                 }
@@ -266,18 +318,26 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         async move {
             // Keep receiving messages until the connection is closed
             while let Some(msg) = receiver.next().await {
-                match msg {
-                    Ok(msg) => {
-                        if let Err(e) = handle_message(msg, &tx, &state, &user).await {
-                            error!("Error handling message: {}", e);
-                            let _ = tx.send(SocketResponse::Error(e.into()));
+                // Spawn a new task for each message received
+                tokio::spawn({
+                    let tx = tx.clone();
+                    let user = user.clone();
+                    let socket = socket.clone();
+                    let state = state.clone();
+                    async move {
+                        match msg {
+                            Ok(msg) => {
+                                if let Err(e) = handle_message(msg, &socket, &state, &user).await {
+                                    error!("Error handling message: {}", e);
+                                    let _ = tx.send(SocketResponse::Error(e.into()));
+                                }
+                            }
+                            Err(e) => {
+                                error!("Error receiving message: {}", e);
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!("Error receiving message: {}", e);
-                        break;
-                    }
-                }
+                });
             }
         }
     });
@@ -309,8 +369,9 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 async fn request_messages(
     pool: &SqlitePool,
     request: &RequestMessage,
+    tx: &broadcast::Sender<SocketResponse>,
     user: &UserToken,
-) -> Result<Vec<ChatMessage>, AppError> {
+) -> Result<(), AppError> {
     if sqlx::query!(
         r#"SELECT conversation_id FROM user_conversations
             WHERE conversation_id = ? and user_id = ?"#,
@@ -326,7 +387,8 @@ async fn request_messages(
 
     let limit = request.message_num.unwrap_or(50);
     let message_id = request.message_id.unwrap_or(i64::MAX);
-    Ok(sqlx::query_as!(
+
+    let mut query = sqlx::query_as!(
         ChatMessage,
         r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
@@ -337,8 +399,12 @@ async fn request_messages(
         message_id,
         limit
     )
-    .fetch_all(pool)
-    .await?)
+    .fetch(pool);
+
+    while let Some(message) = query.next().await {
+        tx.send(SocketResponse::Message(message?))?;
+    }
+    Ok(())
 }
 
 /// Save a message to the database
@@ -416,7 +482,7 @@ async fn delete_message(
     pool: &SqlitePool,
     message_id: i64,
     user: &UserToken,
-) -> Result<(), AppError> {
+) -> Result<ChatMessage, AppError> {
     // Check if the message exists in the database
     let Some(message) = sqlx::query_as!(
         ChatMessage,
@@ -433,10 +499,13 @@ async fn delete_message(
         return Err(anyhow!("User does not have permission to delete message").into());
     }
     // Delete the message from the database
-    sqlx::query!("DELETE FROM messages WHERE id = ?", message.id)
-        .execute(pool)
-        .await?;
-    Ok(())
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "DELETE FROM messages WHERE id = ? RETURNING *",
+        message.id
+    )
+    .fetch_one(pool)
+    .await?)
 }
 
 /// Handle friend requests
@@ -457,13 +526,17 @@ async fn handle_friend_request(
     // Check that the users are not already friends
     let user1_id = user.id.min(other_user_id);
     let user2_id = user.id.max(other_user_id);
-    sqlx::query!(
+    if sqlx::query!(
         "SELECT user1_id FROM friendships WHERE user1_id = ? and user2_id = ?",
         user1_id,
         user2_id
     )
     .fetch_optional(&state.pool)
-    .await?;
+    .await?
+    .is_some()
+    {
+        return Err(anyhow!("Users are already friends").into());
+    }
 
     let friend_request = if accept {
         // Check that the sender does not already have an outgoing friend request to
@@ -561,13 +634,13 @@ async fn handle_friend_request(
     // Only send the friend request over the websocket to the receiver
     // if the receiver is online
     if let Some(receiver) = state.user_sockets.get(&other_user_id) {
-        receiver.send(friend_request.clone())?;
+        receiver.channel.send(friend_request.clone())?;
     }
 
     // Send the friend request over the websocket to the sender
     // to let them know that the friend request was sent successfully
     if let Some(sender) = state.user_sockets.get(&user.id) {
-        sender.send(friend_request)?;
+        sender.channel.send(friend_request)?;
     }
     Ok(())
 }
@@ -676,31 +749,112 @@ async fn read_event(
 /// variant
 async fn handle_message(
     msg: Message,
-    tx: &broadcast::Sender<SocketResponse>,
+    socket: &InnerSocket,
     state: &AppState,
     user: &UserToken,
 ) -> Result<(), AppError> {
     match msg {
         Message::Text(text) => {
             let msg: SocketRequest = serde_json::from_str(&text)?;
-            dbg!("Received", &msg);
+            info!("Received {:?}", msg);
             match msg {
                 SocketRequest::SendMessage(mut send_message) => {
+                    // Check if there is an AI generation in progress started by the user in the
+                    // same conversation and prevent them from sending a new message if there is
+                    if send_message
+                        .conversation_id
+                        .is_some_and(|id| id == socket.ai_responding.load(Ordering::SeqCst))
+                    {
+                        return Err(anyhow!("AI generation is already in progress. Please cancel generation in this conversation or wait until it is complete").into());
+                    }
+
                     let chat_message = save_message(&state.pool, &send_message, user).await?;
                     send_message.conversation_id = Some(chat_message.conversation_id);
-                    // Broadcast the newly saved message to all the users in the conversation
-                    if send_message.ai_model_id.is_some() {
-                        // Query the AI model for a response and broadcast the user's message
-                        // to the conversation at the same time
-                        let (_, ai_message) = tokio::join!(
-                            broadcast_event(state, SocketResponse::Message(chat_message.clone())),
-                            query_model(state, &send_message)
-                        );
-                        // Broadcast the AI model's response to the conversation
-                        broadcast_event(state, SocketResponse::Message(ai_message?)).await?;
-                    } else {
-                        broadcast_event(state, SocketResponse::Message(chat_message.clone()))
-                            .await?;
+
+                    let Some(ai_model_id) = send_message.ai_model_id else {
+                        // There is no model to query, so broadcast the newly saved message
+                        // to all the users in the conversation and return
+                        broadcast_event(state, SocketResponse::Message(chat_message)).await?;
+                        return Ok(());
+                    };
+
+                    // The user is explicitly trying to query the model, so check if there is
+                    // already an AI generation in progress in any conversation they are a part of
+                    // and prevent them from starting a new one
+                    if socket.ai_responding.load(Ordering::SeqCst) != 0 {
+                        return Err(anyhow!("AI generation is already in progress. Please cancel generation or wait before making another query").into());
+                    }
+
+                    socket
+                        .ai_responding
+                        .store(chat_message.conversation_id, Ordering::SeqCst);
+                    // `tokio::join!` allows us to run multiple futures to completion at the same time
+                    // In this case, querying the AI model for a response and broadcasting the user's
+                    // messages to the conversation at the same time
+                    let (_, ai_message) = tokio::join!(
+                        broadcast_event(state, SocketResponse::Message(chat_message)),
+                        // Wrap the AI model query in an async block to turn it into a
+                        // future that can be used with `tokio::join!`
+                        async {
+                            // `tokio::select!` is used to wait for either the AI model's
+                            // response or for the user to cancel the AI generation
+                            // Which ever one comes first will be returned and the other will
+                            // be aborted
+                            tokio::select! {
+                                ai_message = query_model(state, &send_message) => {
+                                    let ai_message = ai_message?;
+                                    // Save the AI model's response to the database
+                                    // This is done outside of the `query_model` function to
+                                    // prevent the message from being lost if the user cancels
+                                    // the AI generation while writing to the database
+                                    Ok(sqlx::query_as!(
+                                        ChatMessage,
+                                        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
+                                        send_message.conversation_id,
+                                        ai_message,
+                                        ai_model_id
+                                    )
+                                    .fetch_one(&state.pool)
+                                    .await?)
+                                }
+                                _ = async {
+                                    // Subscribe to the broadcast channel to listen for the
+                                    // user canceling the AI generation
+                                    let mut rx = socket.channel.subscribe();
+                                    while let Ok(msg) = rx.recv().await {
+                                        if let SocketResponse::InternalCanceledGeneration = msg {
+                                            break;
+                                        }
+                                    }
+                                } => {
+                                    let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                                    broadcast_event(
+                                        state,
+                                        SocketResponse::CanceledGeneration { conversation_id },
+                                    )
+                                    .await?;
+                                    // Return an error to prevent the AI model's response from being broadcasted
+                                    // We use an error instead of an option here to be able to
+                                    // short circuit the function in both branches using `?`
+                                    Err(anyhow!("AI generation was canceled").into())
+                                }
+                            }
+                        }
+                    );
+                    socket.ai_responding.store(0, Ordering::SeqCst);
+                    // Broadcast the AI model's response to the conversation
+                    match ai_message {
+                        Ok(ai_message) => {
+                            broadcast_event(state, SocketResponse::Message(ai_message)).await?;
+                        }
+                        // Check for special error case where the AI generation was canceled
+                        Err(AppError::Generic(e))
+                            if e.to_string() == "AI generation was canceled" =>
+                        {
+                            // Not actually an error so return Ok
+                            return Ok(());
+                        }
+                        Err(e) => return Err(e),
                     }
                 }
                 SocketRequest::EditMessage(chat_message) => {
@@ -708,10 +862,17 @@ async fn handle_message(
                     // Broadcast the edited message to all the users in the conversation
                     broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
                 }
-                SocketRequest::DeleteMessage(message_id) => {
-                    delete_message(&state.pool, message_id, user).await?;
+                SocketRequest::DeleteMessage { message_id } => {
+                    let deleted_message = delete_message(&state.pool, message_id, user).await?;
                     // Broadcast the deleted message to all the users in the conversation
-                    broadcast_event(state, SocketResponse::DeleteMessage(message_id)).await?;
+                    broadcast_event(
+                        state,
+                        SocketResponse::DeleteMessage {
+                            message_id: deleted_message.id,
+                            conversation_id: deleted_message.conversation_id,
+                        },
+                    )
+                    .await?;
                 }
                 SocketRequest::InviteUsers {
                     invitees,
@@ -735,7 +896,7 @@ async fn handle_message(
                 } => {
                     handle_friend_request(state, other_user_id, accept, user).await?;
                 }
-                SocketRequest::ReadMessage(conversation_id) => {
+                SocketRequest::ReadMessage { conversation_id } => {
                     read_event(&state.pool, conversation_id, user).await?;
                     broadcast_event(
                         state,
@@ -748,13 +909,33 @@ async fn handle_message(
                     .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
-                    for message in request_messages(&state.pool, &request_message, user).await? {
-                        tx.send(SocketResponse::Message(message))?;
+                    request_messages(&state.pool, &request_message, &socket.channel, user).await?;
+                }
+                SocketRequest::RequestConversation { conversation_id } => {
+                    if !sqlx::query!(
+                        "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+                        conversation_id,
+                        user.id
+                    ).fetch_optional(&state.pool).await?.is_some_and(|x| x.conversation_id == conversation_id) {
+                        return Err(anyhow!("User is not in the conversation").into());
                     }
+
+                    socket.channel.send(SocketResponse::Conversation(
+                        sqlx::query_as!(
+                            Conversation,
+                            "SELECT * FROM conversations WHERE id = ?",
+                            conversation_id
+                        )
+                        .fetch_optional(&state.pool)
+                        .await?
+                        .ok_or_else(|| anyhow!("Conversation does not exist"))?,
+                    ))?;
                 }
                 SocketRequest::RequestConversations(request_message) => {
                     let limit = request_message.message_num.unwrap_or(50);
-                    let conversation_id = request_message.conversation_id.unwrap_or(i64::MAX);
+                    let last_message_at = request_message
+                        .last_message_at
+                        .unwrap_or(NaiveDateTime::MAX);
                     // Query the database for the conversations the user is in
                     // Use fetch instead of fetch all to stream results to the client
                     let mut query = sqlx::query_as!(
@@ -762,16 +943,70 @@ async fn handle_message(
                         r#"SELECT conversations.id, conversations.title, conversations.created_at, conversations.last_message_at FROM conversations
                            JOIN user_conversations
                            ON conversations.id = user_conversations.conversation_id
-                           WHERE user_id = ? AND conversations.id < ?
+                           WHERE user_id = ? AND conversations.last_message_at > ?
                            ORDER BY conversations.last_message_at DESC
                            LIMIT ?"#,
                         user.id,
-                        conversation_id,
+                        last_message_at,
                         limit
                     )
                     .fetch(&state.pool);
                     while let Some(conversation) = query.next().await {
-                        tx.send(SocketResponse::Conversation(conversation?))?;
+                        socket
+                            .channel
+                            .send(SocketResponse::Conversation(conversation?))?;
+                    }
+                }
+                SocketRequest::RequestFriends => {
+                    let mut query = sqlx::query!(
+                        "SELECT * FROM friendships WHERE user1_id = ? OR user2_id = ?",
+                        user.id,
+                        user.id
+                    )
+                    .fetch(&state.pool);
+                    while let Some(friendship) = query.next().await {
+                        let friendship = friendship?;
+                        let friend_id = if friendship.user1_id == user.id {
+                            friendship.user2_id
+                        } else {
+                            friendship.user1_id
+                        };
+                        socket.channel.send(SocketResponse::FriendData {
+                            id: friend_id,
+                            created_at: friendship.created_at,
+                        })?;
+                    }
+                }
+                SocketRequest::RequestFriendRequests => {
+                    let mut query = sqlx::query!(
+                        "SELECT * FROM friend_requests WHERE sender_id = ? or receiver_id = ?",
+                        user.id,
+                        user.id
+                    )
+                    .fetch(&state.pool);
+
+                    while let Some(friend_request) = query.next().await {
+                        let friend_request = friend_request?;
+                        socket.channel.send(SocketResponse::FriendRequest {
+                            sender_id: friend_request.sender_id,
+                            receiver_id: friend_request.receiver_id,
+                            created_at: friend_request.created_at,
+                            status: FriendRequestStatus::Pending,
+                        })?;
+                    }
+                }
+                SocketRequest::CancelGeneration => {
+                    // Use 0 as a sentinel value to indicate that the AI generation
+                    // is not running for the current user
+                    let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                    if conversation_id > 0 {
+                        socket
+                            .channel
+                            .send(SocketResponse::InternalCanceledGeneration)?;
+                    } else {
+                        socket.channel.send(SocketResponse::Error(
+                            AppError::from(anyhow!("No ai response to cancel")).into(),
+                        ))?;
                     }
                 }
             }
@@ -791,14 +1026,15 @@ async fn handle_message(
 pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
-        SocketResponse::DeleteMessage(id) => *id,
+        SocketResponse::DeleteMessage {
+            conversation_id, ..
+        } => *conversation_id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
         SocketResponse::Invite {
-            inviter: _,
-            conversation_id,
-            invited_at: _,
+            conversation_id, ..
         } => *conversation_id,
+        SocketResponse::CanceledGeneration { conversation_id } => *conversation_id,
         _ => unreachable!("uuhhh how"),
     };
     let users = sqlx::query!(
@@ -809,7 +1045,7 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
     .await?;
     for user in users {
         if let Some(user) = state.user_sockets.get(&user.user_id) {
-            if let Err(e) = user.send(msg.clone()) {
+            if let Err(e) = user.channel.send(msg.clone()) {
                 warn!("Error broadcasting event: {}", e);
             }
         }
@@ -835,8 +1071,13 @@ async fn send_message(
     // is serializable and will not panic
     // All responses should be serialized to JSON
     // and sent as Text
-    sender
-        .send(Message::Text(serde_json::to_string(&msg).unwrap()))
-        .await?;
+    match msg {
+        SocketResponse::InternalCanceledGeneration => {}
+        _ => {
+            sender
+                .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                .await?;
+        }
+    }
     Ok(true)
 }

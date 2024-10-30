@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use dotenv_codegen::dotenv;
+use dotenvy_macro::dotenv;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::de::DeserializeOwned;
 
