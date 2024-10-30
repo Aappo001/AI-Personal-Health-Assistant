@@ -23,7 +23,7 @@ export default function Register() {
           const response = await axios.get(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
 
           if (response.status !== 200) {
-            let error = response.data; // Update to handle the Axios response
+            let error = response.data;
             setResponseMessage(error.message);
             setError(true);
           } else {
