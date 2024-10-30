@@ -8,7 +8,7 @@ use axum::{
 };
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{prelude::FromRow, SqlitePool};
 
 use crate::{
     auth::JwtAuth,
@@ -113,7 +113,7 @@ pub async fn create_conversation(
 
 /// A message in a conversation
 // Might add a field for whether the message should trigger the AI
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     /// The id of the message

@@ -24,13 +24,13 @@ use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
 use crate::{
-    chat::{query_model, Conversation},
+    chat::{query_model, search::search_message, Conversation},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
     AppState, InnerSocket,
 };
 
-use super::{create_conversation, ChatMessage, ReadEvent, StreamMessage};
+use super::{create_conversation, search::SearchMessage, ChatMessage, ReadEvent, StreamMessage};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -182,10 +182,7 @@ enum SocketRequest {
     },
     /// Request to search messages in given conversations
     /// that match the query string
-    SearchMessages {
-        conversations: Box<[i64]>,
-        query: String,
-    },
+    SearchMessages(SearchMessage),
     /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
@@ -1017,8 +1014,8 @@ async fn handle_message(
                         ))?;
                     }
                 }
-                SocketRequest::SearchMessages { conversations, query } => {
-                    todo!()
+                SocketRequest::SearchMessages(message) => {
+                    search_message(&state.pool, &message, &socket.channel).await?;
                 }
             }
         }

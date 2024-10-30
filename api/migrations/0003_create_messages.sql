@@ -7,7 +7,7 @@ INSERT INTO ai_models (name) VALUES ('mistralai/Mistral-Nemo-Instruct-2407');
 
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    message TEXT NOT NULL,
+    message TEXT NOT NULL COLLATE NOCASE,
     user_id INTEGER,
     ai_model_id INTEGER,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
