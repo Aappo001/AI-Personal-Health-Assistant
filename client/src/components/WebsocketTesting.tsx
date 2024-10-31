@@ -10,6 +10,7 @@ export default function WebsocketTesting() {
     inviteUsers,
     requestConversation,
     requestMessages,
+    requestFriends,
     loading,
   } = useWebsocketSetup();
 
@@ -75,13 +76,6 @@ export default function WebsocketTesting() {
             Request Messages with id {convoId ? convoId : "???"}
           </button>
 
-          <button
-            onClick={() => requestMessages(convoId)}
-            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
-          >
-            Request Messages with id {convoId ? convoId : "???"}
-          </button>
-
           <input
             type="text"
             placeholder="Enter Conversation Id"
@@ -103,6 +97,14 @@ export default function WebsocketTesting() {
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
             Send a message to convo id {convoId ? convoId : "???"}
+          </button>
+          <button
+            onClick={() => {
+              requestFriends();
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Request Friends
           </button>
         </div>
       </Background>

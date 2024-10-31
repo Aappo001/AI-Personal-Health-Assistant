@@ -7,6 +7,7 @@ import {
   wsInviteUsersToConvo,
   wsRequestConversation,
   wsRequestMessages,
+  wsRequestFriends,
 } from "../../utils/ws-utils";
 
 const handleMessage = (event: MessageEvent) => {
@@ -35,6 +36,9 @@ const handleMessage = (event: MessageEvent) => {
       break;
     case SocketResponse.Error:
       console.log(`SocketResponse Error: ${data.message}`);
+      break;
+    case SocketResponse.FriendData:
+      console.log(`Friends with user id ${data.id} at ${data.created_at}`);
       break;
     default:
       console.log(`Unknown SocketResponseType: ${type}`);
@@ -83,11 +87,7 @@ export default function useWebsocketSetup() {
     },
 
     sendFriendRequest: (username: string) => {
-      if (!socketRef.current) {
-        console.error(`Error: websocket not initialized`);
-        return;
-      }
-
+      if (!socketRef.current) return;
       getUserIdFromUsername(username)
         .then((id) => {
           if (!id || !socketRef.current) return;
@@ -97,18 +97,12 @@ export default function useWebsocketSetup() {
     },
 
     requestConversations: () => {
-      if (!socketRef.current) {
-        console.error("Error: Websocket not initialized");
-        return;
-      }
+      if (!socketRef.current) return;
       wsRequestConversations(socketRef.current);
     },
 
     inviteUsers: (usernames: string[]) => {
-      if (!socketRef.current) {
-        console.error("Error: Websocket not initialized");
-        return;
-      }
+      if (!socketRef.current) return;
       console.log(`InviteUsers input: ${usernames}`);
 
       // create an array of promises, so that the requests can run concurrently using Promise.all()
@@ -129,13 +123,17 @@ export default function useWebsocketSetup() {
     },
 
     requestConversation: (id: number) => {
-      //@ts-expect-error websocket is not null
+      if (!socketRef.current) return;
       wsRequestConversation(socketRef.current, id);
     },
 
     requestMessages: (id: number) => {
-      //@ts-expect-error websocket is not null
+      if (!socketRef.current) return;
       wsRequestMessages(socketRef.current, id);
+    },
+    requestFriends: () => {
+      if (!socketRef.current) return;
+      wsRequestFriends(socketRef.current);
     },
 
     loading,

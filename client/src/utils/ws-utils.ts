@@ -43,11 +43,19 @@ export const wsRequestMessages = (ws: WebSocket, id: number) => {
     }))
 }
 
+export const wsRequestFriends = (ws: WebSocket) => {
+    console.log("Requesting friends");
+    ws.send(JSON.stringify({
+        type: "RequestFriends"
+    }))
+}
+
 export const SocketResponse = {
     FriendRequest: "FriendRequest",
     Message: "Message",
     Generic: "Generic",
     Invite: "Invite",
     Conversation: "Conversation",
-    Error: "Error"
+    Error: "Error",
+    FriendData: "FriendData"
 }

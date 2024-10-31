@@ -80,3 +80,10 @@ export const requestConversationsSchema = z.object({
   createdAt: z.string(),
   lastMessageAt: z.string()
 })
+
+// "type":"FriendData","id":2,"created_at":"2024-10-31T03:28:38"}
+export const requestFriendsSchema = z.object({
+  type: z.literal("FriendData"),
+  id: z.number(),
+  created_at: z.string()
+})
