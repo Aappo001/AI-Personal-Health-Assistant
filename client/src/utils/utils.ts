@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from "axios";
 import { implicitLoginSchema, publicUserSchema } from "../schemas";
-import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
+import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
@@ -74,6 +74,23 @@ export const getUserIdFromUsername = async (username: string): Promise<number | 
   }
 
   return parsedUser.data.id
+}
+
+export const getUserFromId = async (id: number): Promise<PublicUser | undefined> => {
+  const response = await fetch(`http://localhost:3000/api/users/id/${id}`)
+  if(!response.ok) {
+    console.error("Error getting user from id");
+    return
+  }
+  
+  const user = publicUserSchema.safeParse(await response.json())
+
+  if(!user.success) {
+    console.log(`Error parsing JSON: ${user.error}`);
+    return
+  }
+  
+  return user.data
 }
 
 const mainColors = [

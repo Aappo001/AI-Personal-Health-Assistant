@@ -1,14 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LoginBody } from "../types";
 import Background from "./Background";
 import { getJwtFromResponseHeader, saveJwtToLocalStorage } from "../utils/utils";
 import axios from "axios";
-import useImplicitLogin from "../store/hooks/useImplicitLogin";
-import useUserStore from "../store/hooks/useUserStore";
 
 export default function Login() {
-  //   useImplicitLogin();
-  //   const user = useUserStore();
   const [login, setLogin] = useState<LoginBody>({
     username: "",
     password: "",
@@ -16,12 +12,6 @@ export default function Login() {
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
-  //   useEffect(() => {
-  //     if (user.id !== -1) {
-  //       window.location.href = "/";
-  //       return;
-  //     }
-  //   }, [user.id]);
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
     event.preventDefault();

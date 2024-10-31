@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getJwt, getUserIdFromUsername } from "../../utils/utils";
+import { getJwt, getUserFromId, getUserIdFromUsername } from "../../utils/utils";
 import {
   wsSendFriendRequest,
   SocketResponse,
@@ -9,15 +9,12 @@ import {
   wsRequestMessages,
   wsRequestFriends,
 } from "../../utils/ws-utils";
+import { requestFriendsSchema } from "../../schemas";
+import useAppDispatch from "./useAppDispatch";
+import { addFriend } from "../friendsSlice";
 
-const handleMessage = (event: MessageEvent) => {
+const handleMessage = (type: string, data: any) => {
   console.log("Received websocket response");
-  const data = JSON.parse(event.data);
-  const type = data.type;
-  if (!type) {
-    console.log("type field missing from JSON response");
-    return;
-  }
   switch (type) {
     case SocketResponse.Message:
       console.log(`Received message: ${data.message} from user ${data.userId}`);
@@ -49,6 +46,7 @@ const handleMessage = (event: MessageEvent) => {
 export default function useWebsocketSetup() {
   const socketRef = useRef<WebSocket | null>(null);
   const [loading, setLoading] = useState(true);
+  const dispatch = useAppDispatch();
 
   useEffect(() => {
     console.log("Running chat setup..");
@@ -63,7 +61,28 @@ export default function useWebsocketSetup() {
       console.log("Websocket connection established?");
     };
 
-    socketRef.current.addEventListener("message", handleMessage);
+    socketRef.current.addEventListener("message", (event: MessageEvent) => {
+      const data = JSON.parse(event.data);
+      const type = data.type;
+      if (!type) {
+        console.log("type field missing from JSON response");
+        return;
+      }
+      if (type == SocketResponse.FriendData) {
+        const privateUser = requestFriendsSchema.parse(data);
+        getUserFromId(privateUser.id)
+          .then((user) => {
+            if (!user) return;
+            dispatch(addFriend(user));
+          })
+          .catch((err) => {
+            console.error(`Xiao hong shu Error occurred getting user from id:  ${err}`);
+            console.log(JSON.stringify(data));
+          });
+      } else {
+        handleMessage(type, data);
+      }
+    });
 
     return () => {
       console.log("Cleaning up websocket connection");

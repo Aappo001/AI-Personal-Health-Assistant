@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import RecentConversation from "./RecentConversation";
 import { useNavigate } from "react-router-dom";
+import { WebsocketContext } from "./Chat";
 
 export default function ChatSidebar({
   friends,
@@ -9,8 +10,11 @@ export default function ChatSidebar({
   friends: string[];
   colors: string[];
 }) {
+  const ws = useContext(WebsocketContext);
   const [activeConvo, setActiveConvo] = useState(-1);
   const navigate = useNavigate();
+
+  useEffect(() => {}, [ws]);
 
   const handleClick = (index: number) => {
     if (index === activeConvo) {

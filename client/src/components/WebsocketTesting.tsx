@@ -1,6 +1,8 @@
 import Background from "./Background";
 import useWebsocketSetup from "../store/hooks/useWebsocket";
 import { useState } from "react";
+import { useSelector } from "react-redux";
+import { Rootstate } from "../store/store";
 
 export default function WebsocketTesting() {
   const {
@@ -17,10 +19,15 @@ export default function WebsocketTesting() {
   const [inviteUser, setInviteUser] = useState("");
   const [convoId, setConvoId] = useState(0);
   const [message, setMessage] = useState("");
+  const friends = useSelector((state: Rootstate) => state.friends.friends);
 
   return (
     <>
       <Background>
+        {friends.length > 0 &&
+          friends.map((friend) => (
+            <h1 className="text-3xl text-offwhite">Friends with {friend.username}</h1>
+          ))}
         <div className="w-full flex flex-col justify-center items-center">
           <h1 className=" text-3xl text-offwhite">
             {loading ? "Websocket connection loading...." : "Websocket connection established"}
