@@ -8,3 +8,12 @@ CREATE TABLE users (
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_users_username ON users (username);
+
+CREATE TRIGGER users_update_modified_at AFTER UPDATE ON users
+BEGIN
+    UPDATE users
+    SET modified_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.id;
+END;

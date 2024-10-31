@@ -303,7 +303,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                         break;
                     }
                     Err(e) => {
-                        error!("Error sending messae: {}", e);
+                        error!("Error sending message: {}", e);
                         sender.send(Message::Text(e.to_string())).await.unwrap();
                     }
                 }
@@ -759,84 +759,102 @@ async fn handle_message(
             info!("Received {:?}", msg);
             match msg {
                 SocketRequest::SendMessage(mut send_message) => {
+                    // Check if there is an AI generation in progress started by the user in the
+                    // same conversation and prevent them from sending a new message if there is
+                    if send_message
+                        .conversation_id
+                        .is_some_and(|id| id == socket.ai_responding.load(Ordering::SeqCst))
+                    {
+                        return Err(anyhow!("AI generation is already in progress. Please cancel generation in this conversation or wait until it is complete").into());
+                    }
+
                     let chat_message = save_message(&state.pool, &send_message, user).await?;
                     send_message.conversation_id = Some(chat_message.conversation_id);
-                    // Broadcast the newly saved message to all the users in the conversation
-                    if let Some(ai_model_id) = send_message.ai_model_id {
-                        socket
-                            .ai_responding
-                            .store(chat_message.conversation_id, Ordering::SeqCst);
-                        // `tokio::join!` allows us to run multiple futures to completion at the same time
-                        // In this case, querying the AI model for a response and broadcasting the user's 
-                        // messages to the conversation at the same time
-                        let (_, ai_message) = tokio::join!(
-                            broadcast_event(state, SocketResponse::Message(chat_message.clone())),
-                            // Wrap the AI model query in an async block to turn it into a
-                            // future that can be used with `tokio::join!`
-                            async {
-                                // `tokio::select!` is used to wait for either the AI model's
-                                // response or for the user to cancel the AI generation
-                                // Which ever one comes first will be returned and the other will
-                                // be aborted
-                                tokio::select! {
-                                    ai_message = query_model(state, &send_message) => {
-                                        let ai_message = ai_message?;
-                                        // Save the AI model's response to the database
-                                        // This is done outside of the `query_model` function to
-                                        // prevent the message from being lost if the user cancels
-                                        // the AI generation while writing to the database
-                                        Ok(sqlx::query_as!(
-                                            ChatMessage,
-                                            "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
-                                            send_message.conversation_id,
-                                            ai_message,
-                                            ai_model_id
-                                        )
-                                        .fetch_one(&state.pool)
-                                        .await?)
-                                    }
-                                    _ = async {
-                                        // Subscribe to the broadcast channel to listen for the
-                                        // user canceling the AI generation
-                                        let mut rx = socket.channel.subscribe();
-                                        while let Ok(msg) = rx.recv().await {
-                                            if let SocketResponse::InternalCanceledGeneration = msg {
-                                                break;
-                                            }
+
+                    let Some(ai_model_id) = send_message.ai_model_id else {
+                        // There is no model to query, so broadcast the newly saved message
+                        // to all the users in the conversation and return
+                        broadcast_event(state, SocketResponse::Message(chat_message)).await?;
+                        return Ok(());
+                    };
+
+                    // The user is explicitly trying to query the model, so check if there is
+                    // already an AI generation in progress in any conversation they are a part of
+                    // and prevent them from starting a new one
+                    if socket.ai_responding.load(Ordering::SeqCst) != 0 {
+                        return Err(anyhow!("AI generation is already in progress. Please cancel generation or wait before making another query").into());
+                    }
+
+                    socket
+                        .ai_responding
+                        .store(chat_message.conversation_id, Ordering::SeqCst);
+                    // `tokio::join!` allows us to run multiple futures to completion at the same time
+                    // In this case, querying the AI model for a response and broadcasting the user's
+                    // messages to the conversation at the same time
+                    let (_, ai_message) = tokio::join!(
+                        broadcast_event(state, SocketResponse::Message(chat_message)),
+                        // Wrap the AI model query in an async block to turn it into a
+                        // future that can be used with `tokio::join!`
+                        async {
+                            // `tokio::select!` is used to wait for either the AI model's
+                            // response or for the user to cancel the AI generation
+                            // Which ever one comes first will be returned and the other will
+                            // be aborted
+                            tokio::select! {
+                                ai_message = query_model(state, &send_message) => {
+                                    let ai_message = ai_message?;
+                                    // Save the AI model's response to the database
+                                    // This is done outside of the `query_model` function to
+                                    // prevent the message from being lost if the user cancels
+                                    // the AI generation while writing to the database
+                                    Ok(sqlx::query_as!(
+                                        ChatMessage,
+                                        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
+                                        send_message.conversation_id,
+                                        ai_message,
+                                        ai_model_id
+                                    )
+                                    .fetch_one(&state.pool)
+                                    .await?)
+                                }
+                                _ = async {
+                                    // Subscribe to the broadcast channel to listen for the
+                                    // user canceling the AI generation
+                                    let mut rx = socket.channel.subscribe();
+                                    while let Ok(msg) = rx.recv().await {
+                                        if let SocketResponse::InternalCanceledGeneration = msg {
+                                            break;
                                         }
-                                    } => {
-                                        let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
-                                        broadcast_event(
-                                            state,
-                                            SocketResponse::CanceledGeneration { conversation_id },
-                                        )
-                                        .await?;
-                                        // Return an error to prevent the AI model's response from being broadcasted
-                                        // We use an error instead of an option here to be able to
-                                        // short circuit the function in both branches using `?`
-                                        Err(anyhow!("AI generation was canceled").into())
                                     }
+                                } => {
+                                    let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
+                                    broadcast_event(
+                                        state,
+                                        SocketResponse::CanceledGeneration { conversation_id },
+                                    )
+                                    .await?;
+                                    // Return an error to prevent the AI model's response from being broadcasted
+                                    // We use an error instead of an option here to be able to
+                                    // short circuit the function in both branches using `?`
+                                    Err(anyhow!("AI generation was canceled").into())
                                 }
                             }
-                        );
-                        socket.ai_responding.store(0, Ordering::SeqCst);
-                        // Broadcast the AI model's response to the conversation
-                        match ai_message {
-                            Ok(ai_message) => {
-                                broadcast_event(state, SocketResponse::Message(ai_message)).await?;
-                            }
-                            // Check for special error case where the AI generation was canceled
-                            Err(AppError::Generic(e))
-                                if e.to_string() == "AI generation was canceled" =>
-                            {
-                                // Not actually an error so return Ok
-                                return Ok(())
-                            }
-                            Err(e) => return Err(e),
                         }
-                    } else {
-                        broadcast_event(state, SocketResponse::Message(chat_message.clone()))
-                            .await?;
+                    );
+                    socket.ai_responding.store(0, Ordering::SeqCst);
+                    // Broadcast the AI model's response to the conversation
+                    match ai_message {
+                        Ok(ai_message) => {
+                            broadcast_event(state, SocketResponse::Message(ai_message)).await?;
+                        }
+                        // Check for special error case where the AI generation was canceled
+                        Err(AppError::Generic(e))
+                            if e.to_string() == "AI generation was canceled" =>
+                        {
+                            // Not actually an error so return Ok
+                            return Ok(());
+                        }
+                        Err(e) => return Err(e),
                     }
                 }
                 SocketRequest::EditMessage(chat_message) => {

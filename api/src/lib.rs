@@ -46,7 +46,7 @@ use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
 use users::{
     authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id,
-    get_user_by_username, get_user_from_token,
+    get_user_by_username, get_user_from_token, update_user,
 };
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
@@ -74,6 +74,8 @@ pub struct AppState {
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
+    // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
+    // that the AI is currently generating messages for.
 }
 
 #[derive(Clone, Debug)]
@@ -86,8 +88,8 @@ pub struct InnerSocket {
     /// generating messages for.
     /// This uses 0 as a sentinel value to represent that the AI is not currently generating
     /// responses since conversation ids are all greater than 0. This would've been better
-    /// as an Arc<Option<AtomicI64>>, but that doesn't provide mutability. So the other
-    /// option is to use Arc<AtomicPtr<Option<i64>>> but that requires unsafe code to
+    /// as an `Arc<Option<AtomicI64>>`, but that doesn't provide mutability. So the other
+    /// option is to use `Arc<AtomicPtr<Option<i64>>>` but that requires unsafe code to
     /// manage the pointer.
     ai_responding: Arc<AtomicI64>,
 }
@@ -154,6 +156,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/users/username/:username", get(get_user_by_username))
         .route("/check/username/:username", get(check_username))
         .route("/check/email/:email", get(check_email))
+        .route("/account", post(update_user))
         .route("/account", delete(delete_user))
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
