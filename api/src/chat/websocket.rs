@@ -439,7 +439,7 @@ async fn save_message(
 
     Ok(sqlx::query_as!(
         ChatMessage,
-        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?) RETURNING *",
+        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
         user.id,
         conversation_id,
         message.message
@@ -473,7 +473,7 @@ async fn edit_message(
     // We know the message exists so we can just use `fetch_one`
     Ok(sqlx::query_as!(
         ChatMessage,
-        "UPDATE messages SET message = ?, modified_at = ? WHERE id = ? RETURNING *",
+        "UPDATE messages SET message = ?, modified_at = ? WHERE id = ? RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
         message.message,
         now,
         message.id
@@ -491,7 +491,7 @@ async fn delete_message(
     // Check if the message exists in the database
     let Some(message) = sqlx::query_as!(
         ChatMessage,
-        "SELECT * FROM messages WHERE id = ?",
+        "SELECT id, user_id, conversation_id, message, created_at, modified_at, ai_model_id FROM messages WHERE id = ?",
         message_id
     )
     .fetch_optional(pool)
@@ -506,7 +506,7 @@ async fn delete_message(
     // Delete the message from the database
     Ok(sqlx::query_as!(
         ChatMessage,
-        "DELETE FROM messages WHERE id = ? RETURNING *",
+        "DELETE FROM messages WHERE id = ? RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
         message.id
     )
     .fetch_one(pool)
@@ -814,7 +814,7 @@ async fn handle_message(
                                     // the AI generation while writing to the database
                                     Ok(sqlx::query_as!(
                                         ChatMessage,
-                                        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING *",
+                                        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
                                         send_message.conversation_id,
                                         ai_message,
                                         ai_model_id

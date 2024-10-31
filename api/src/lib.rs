@@ -12,11 +12,7 @@ pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
 use std::{
-    fs::{create_dir_all, File},
-    net::SocketAddr,
-    path::PathBuf,
-    str::FromStr,
-    sync::{atomic::AtomicI64, Arc},
+    fmt::Debug, fs::{create_dir_all, File}, net::SocketAddr, ops::Deref, path::PathBuf, str::FromStr, sync::{atomic::AtomicI64, Arc}
 };
 
 use anyhow::Result;
@@ -74,8 +70,27 @@ pub struct AppState {
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
+    /// Stemmer for stemming all messages sent 
+    stemmer: Arc<Stemmer>
     // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
     // that the AI is currently generating messages for.
+}
+
+/// Wrapper around the `rust_stemmers::Stemmer` struct to allow it to be used in the `AppState`.
+pub struct Stemmer(pub rust_stemmers::Stemmer);
+
+impl Debug for Stemmer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Opaque Stemmer")
+    }
+}
+
+/// Make `Stemmer` deref to `rust_stemmers::Stemmer` for easier access to the stemmer functions.
+impl Deref for Stemmer {
+    type Target = rust_stemmers::Stemmer;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -113,6 +128,7 @@ impl AppState {
             user_sockets: Arc::new(HashMap::new()),
             user_connections: Arc::new(HashMap::new()),
             pool,
+            stemmer: Arc::new(Stemmer(rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English))),
         }
     }
 }
