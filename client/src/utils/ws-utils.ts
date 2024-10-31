@@ -13,7 +13,7 @@ export const wsRequestConversations = (ws: WebSocket) => {
     ws.send(JSON.stringify({
         type: "RequestConversations",
         // last_message_at: null,
-        // message_num: 10
+        message_num: 50
     }))
 }
 
@@ -27,10 +27,27 @@ export const wsInviteUsersToConvo = (ws: WebSocket, ids: number[]) => {
     }))
 }
 
+export const wsRequestConversation = (ws: WebSocket, id: number) => {
+    console.log("Requesting singular conversation");
+    ws.send(JSON.stringify({
+        type: "RequestConversation",
+        conversation_id: id
+    }))
+}
+
+export const wsRequestMessages = (ws: WebSocket, id: number) => {
+    console.log("Requesting messages");
+    ws.send(JSON.stringify({
+        type: "RequestMessages",
+        conversationId: id
+    }))
+}
+
 export const SocketResponse = {
     FriendRequest: "FriendRequest",
     Message: "Message",
     Generic: "Generic",
     Invite: "Invite",
-    Conversation: "Conversation"
+    Conversation: "Conversation",
+    Error: "Error"
 }

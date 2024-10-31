@@ -5,6 +5,8 @@ import {
   SocketResponse,
   wsRequestConversations,
   wsInviteUsersToConvo,
+  wsRequestConversation,
+  wsRequestMessages,
 } from "../../utils/ws-utils";
 
 const handleMessage = (event: MessageEvent) => {
@@ -30,6 +32,9 @@ const handleMessage = (event: MessageEvent) => {
       break;
     case SocketResponse.Conversation:
       console.log(`User present in conversation with id ${data.id}`);
+      break;
+    case SocketResponse.Error:
+      console.log(`SocketResponse Error: ${data.message}`);
       break;
     default:
       console.log(`Unknown SocketResponseType: ${type}`);
@@ -63,7 +68,7 @@ export default function useWebsocketSetup() {
   }, []);
 
   return {
-    handleSendMessage: (message: string) => {
+    handleSendMessage: (message: string, conversationId: number) => {
       if (!socketRef.current) {
         console.error(`Tried to send message ${message} while WS is null`);
         return;
@@ -72,9 +77,11 @@ export default function useWebsocketSetup() {
         JSON.stringify({
           type: "SendMessage",
           message: message,
+          conversationId: conversationId,
         })
       );
     },
+
     sendFriendRequest: (username: string) => {
       if (!socketRef.current) {
         console.error(`Error: websocket not initialized`);
@@ -119,6 +126,16 @@ export default function useWebsocketSetup() {
         .catch((err) => {
           console.log(`Error getting ids from usernames: ${err}`);
         });
+    },
+
+    requestConversation: (id: number) => {
+      //@ts-expect-error websocket is not null
+      wsRequestConversation(socketRef.current, id);
+    },
+
+    requestMessages: (id: number) => {
+      //@ts-expect-error websocket is not null
+      wsRequestMessages(socketRef.current, id);
     },
 
     loading,

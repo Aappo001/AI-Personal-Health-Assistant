@@ -3,10 +3,19 @@ import useWebsocketSetup from "../store/hooks/useWebsocket";
 import { useState } from "react";
 
 export default function WebsocketTesting() {
-  const { handleSendMessage, sendFriendRequest, requestConversations, inviteUsers, loading } =
-    useWebsocketSetup();
+  const {
+    handleSendMessage,
+    sendFriendRequest,
+    requestConversations,
+    inviteUsers,
+    requestConversation,
+    requestMessages,
+    loading,
+  } = useWebsocketSetup();
 
   const [inviteUser, setInviteUser] = useState("");
+  const [convoId, setConvoId] = useState(0);
+  const [message, setMessage] = useState("");
 
   return (
     <>
@@ -15,14 +24,6 @@ export default function WebsocketTesting() {
           <h1 className=" text-3xl text-offwhite">
             {loading ? "Websocket connection loading...." : "Websocket connection established"}
           </h1>
-          <button
-            onClick={() => {
-              handleSendMessage("hello vro");
-            }}
-            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
-          >
-            Send a message
-          </button>
           <button
             onClick={() => {
               sendFriendRequest(inviteUser);
@@ -59,8 +60,50 @@ export default function WebsocketTesting() {
             type="text"
             placeholder="Enter Invite User"
             onChange={(e) => setInviteUser(e.target.value)}
-            className="px-3 py-5 focus:outline-none bg-offwhite text-main-black rounded-sm"
+            className="px-3 py-3 focus:outline-none bg-offwhite text-main-black rounded-sm"
           />
+          <button
+            onClick={() => requestConversation(convoId)}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Get conversation with id {convoId ? convoId : "???"}
+          </button>
+          <button
+            onClick={() => requestMessages(convoId)}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Request Messages with id {convoId ? convoId : "???"}
+          </button>
+
+          <button
+            onClick={() => requestMessages(convoId)}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Request Messages with id {convoId ? convoId : "???"}
+          </button>
+
+          <input
+            type="text"
+            placeholder="Enter Conversation Id"
+            onChange={(e) => setConvoId(parseInt(e.target.value))}
+            className="px-3 py-3 focus:outline-none bg-offwhite text-main-black rounded-sm mb-5"
+          />
+
+          <input
+            type="text"
+            placeholder="Enter Message"
+            onChange={(e) => setMessage(e.target.value)}
+            className="px-3 py-3 focus:outline-none bg-offwhite text-main-black rounded-sm"
+          />
+
+          <button
+            onClick={() => {
+              handleSendMessage(message, convoId);
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Send a message to convo id {convoId ? convoId : "???"}
+          </button>
         </div>
       </Background>
     </>
