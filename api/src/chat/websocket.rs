@@ -414,7 +414,7 @@ async fn request_messages(
 
 /// Save a message to the database
 async fn save_message(
-    pool: &SqlitePool,
+    state: &AppState,
     message: &SendMessage,
     user: &UserToken,
 ) -> Result<ChatMessage, AppError> {
@@ -422,7 +422,7 @@ async fn save_message(
     // so create a new conversation and get the id
     let conversation_id = match message.conversation_id {
         Some(k) => k,
-        None => create_conversation(pool, message, user).await?.id,
+        None => create_conversation(&state.pool, message, user).await?.id,
     };
 
     if sqlx::query!(
@@ -430,33 +430,36 @@ async fn save_message(
         conversation_id,
         user.id
     )
-    .fetch_optional(pool)
+    .fetch_optional(&state.pool)
     .await?
     .is_none()
     {
         return Err(anyhow!("User is not in the conversation").into());
     }
 
+    let stemmed_message = state.stemmer.stem_message(&message.message);
+
     Ok(sqlx::query_as!(
         ChatMessage,
-        "INSERT INTO messages (user_id, conversation_id, message) VALUES (?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
+        "INSERT INTO messages (user_id, conversation_id, message, stemmed_message) VALUES (?, ?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
         user.id,
         conversation_id,
-        message.message
+        message.message,
+        stemmed_message
     )
-    .fetch_one(pool)
+    .fetch_one(&state.pool)
     .await?)
 }
 
 /// Edit message in the database
 async fn edit_message(
-    pool: &SqlitePool,
+    state: &AppState,
     message: &EditMessage,
     user: &UserToken,
 ) -> Result<ChatMessage, AppError> {
     // Check if the message exists in the database
     let Some(message_user) = sqlx::query!("SELECT user_id FROM messages WHERE id = ?", message.id)
-        .fetch_optional(pool)
+        .fetch_optional(&state.pool)
         .await?
     else {
         return Err(anyhow!("Message not found").into());
@@ -467,18 +470,18 @@ async fn edit_message(
         return Err(anyhow!("User does not have permission to edit message").into());
     }
 
-    let now = chrono::Utc::now();
+    let stemmed_message = state.stemmer.stem_message(&message.message);
 
     // Update the message in the database
     // We know the message exists so we can just use `fetch_one`
     Ok(sqlx::query_as!(
         ChatMessage,
-        "UPDATE messages SET message = ?, modified_at = ? WHERE id = ? RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
+        "UPDATE messages SET message = ?, stemmed_message = ? WHERE id = ? RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
         message.message,
-        now,
+        stemmed_message,
         message.id
     )
-    .fetch_one(pool)
+    .fetch_one(&state.pool)
     .await?)
 }
 
@@ -773,7 +776,7 @@ async fn handle_message(
                         return Err(anyhow!("AI generation is already in progress. Please cancel generation in this conversation or wait until it is complete").into());
                     }
 
-                    let chat_message = save_message(&state.pool, &send_message, user).await?;
+                    let chat_message = save_message(state, &send_message, user).await?;
                     send_message.conversation_id = Some(chat_message.conversation_id);
 
                     let Some(ai_model_id) = send_message.ai_model_id else {
@@ -808,15 +811,17 @@ async fn handle_message(
                             tokio::select! {
                                 ai_message = query_model(state, &send_message) => {
                                     let ai_message = ai_message?;
+                                    let stemmed_message = state.stemmer.stem_message(&ai_message);
                                     // Save the AI model's response to the database
                                     // This is done outside of the `query_model` function to
                                     // prevent the message from being lost if the user cancels
                                     // the AI generation while writing to the database
                                     Ok(sqlx::query_as!(
                                         ChatMessage,
-                                        "INSERT INTO messages (conversation_id, message, ai_model_id) VALUES (?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
+                                        "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
                                         send_message.conversation_id,
                                         ai_message,
+                                        stemmed_message,
                                         ai_model_id
                                     )
                                     .fetch_one(&state.pool)
@@ -863,7 +868,7 @@ async fn handle_message(
                     }
                 }
                 SocketRequest::EditMessage(chat_message) => {
-                    let chat_message = edit_message(&state.pool, &chat_message, user).await?;
+                    let chat_message = edit_message(state, &chat_message, user).await?;
                     // Broadcast the edited message to all the users in the conversation
                     broadcast_event(state, SocketResponse::Message(chat_message.clone())).await?;
                 }
@@ -1015,7 +1020,7 @@ async fn handle_message(
                     }
                 }
                 SocketRequest::SearchMessages(message) => {
-                    search_message(&state.pool, &message, &socket.channel).await?;
+                    search_message(state, &message, &socket.channel).await?;
                 }
             }
         }

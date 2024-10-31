@@ -12,7 +12,13 @@ pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
 use std::{
-    fmt::Debug, fs::{create_dir_all, File}, net::SocketAddr, ops::Deref, path::PathBuf, str::FromStr, sync::{atomic::AtomicI64, Arc}
+    fmt::Debug,
+    fs::{create_dir_all, File},
+    net::SocketAddr,
+    ops::Deref,
+    path::PathBuf,
+    str::FromStr,
+    sync::{atomic::AtomicI64, Arc},
 };
 
 use anyhow::Result;
@@ -30,7 +36,8 @@ use tower_http::{
 };
 
 use chat::{
-    connect_conversation, create_conversation_rest, get_conversation, get_user_conversations, get_ai_models,
+    connect_conversation, create_conversation_rest, get_ai_models, get_conversation,
+    get_user_conversations,
 };
 use cli::Args;
 use scc::HashMap;
@@ -70,8 +77,8 @@ pub struct AppState {
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
-    /// Stemmer for stemming all messages sent 
-    stemmer: Arc<Stemmer>
+    /// Stemmer for stemming all messages sent
+    stemmer: Arc<Stemmer>, 
     // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
     // that the AI is currently generating messages for.
 }
@@ -90,6 +97,21 @@ impl Deref for Stemmer {
     type Target = rust_stemmers::Stemmer;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Stemmer {
+    /// Stems an entire message
+    pub fn stem_message(&self, message: &str) -> String {
+        message
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| self.stem(s))
+            .fold(String::new(), |mut acc, s| {
+                acc.push_str(&s);
+                acc.push(' ');
+                acc
+            })
     }
 }
 
@@ -128,7 +150,9 @@ impl AppState {
             user_sockets: Arc::new(HashMap::new()),
             user_connections: Arc::new(HashMap::new()),
             pool,
-            stemmer: Arc::new(Stemmer(rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English))),
+            stemmer: Arc::new(Stemmer(rust_stemmers::Stemmer::create(
+                rust_stemmers::Algorithm::English,
+            ))),
         }
     }
 }
@@ -219,7 +243,7 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
             // Only user NORMAL is WAL mode is enabled
             // as it provides extra performance benefits
             // at the cost of durability
-            .synchronous(SqliteSynchronous::Normal)
+            .synchronous(SqliteSynchronous::Normal),
     );
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)

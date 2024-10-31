@@ -38,20 +38,20 @@ BEGIN
 END;
 
 -- References: https://www.sqlite.org/fts5.html and https://www.sqlite.org/fts5.html#external_content_tables
-CREATE VIRTUAL TABLE messages_fts USING fts5(conversation_id, message, content='messages', content_rowid='id');
+CREATE VIRTUAL TABLE messages_fts USING fts5(conversation_id, message, stemmed_message, content='messages', content_rowid='id');
 
 CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages
 BEGIN
-    INSERT INTO messages_fts(rowid, conversation_id, message) VALUES (NEW.id, NEW.conversation_id,NEW.message);
+    INSERT INTO messages_fts(rowid, conversation_id, message, stemmed_message) VALUES (NEW.id, NEW.conversation_id, NEW.message, NEW.stemmed_message);
 END;
 
 CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages
 BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, conversation_id, message) VALUES('delete', OLD.id, OLD.conversation_id, OLD.message);
+    INSERT INTO messages_fts(messages_fts, rowid, conversation_id, message, stemmed_message) VALUES('delete', OLD.id, OLD.conversation_id, OLD.message, OLD.stemmed_message);
 END;
 
 CREATE TRIGGER messages_fts_update AFTER UPDATE ON messages
 BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, conversation_id, message) VALUES('delete', OLD.id, OLD.conversation_id, OLD.message);
-    INSERT INTO messages_fts(rowid, conversation_id, message) VALUES (NEW.id, NEW.conversation_id, NEW.message);
+    INSERT INTO messages_fts(messages_fts, rowid, conversation_id, message, stemmed_message) VALUES('delete', OLD.id, OLD.conversation_id, OLD.message, OLD.stemmed_message);
+    INSERT INTO messages_fts(rowid, conversation_id, message, stemmed_message) VALUES (NEW.id, NEW.conversation_id, NEW.message, NEW.stemmed_message);
 END;
