@@ -25,10 +25,10 @@ use anyhow::Result;
 use axum::{
     extract::FromRef,
     http::{HeaderName, HeaderValue},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
-use forms::save_health_form;
+use forms::{get_forms, get_health_form, save_health_form, update_health_form};
 use reqwest::{header, Client};
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
@@ -165,7 +165,15 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
         .route("/chat/models", get(get_ai_models))
+        // Used to submit a new health form
         .route("/forms/health", post(save_health_form))
+        // Used to quickly check if a user should submit another health form
+        // can also be used to edit the most recent health form
+        .route("/forms/health", get(get_health_form))
+        // Userd to update a health form with the given id
+        .route("/forms/health/:id", put(update_health_form))
+        // Used to show a user all the health forms they have submitted
+        .route("/forms", get(get_forms))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);
