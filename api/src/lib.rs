@@ -11,6 +11,8 @@ pub mod error;
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
+/// Contains logic for processing user forms saving them to the database as statistics.
+pub mod forms;
 use std::{
     fs::{create_dir_all, File},
     net::SocketAddr,
@@ -26,6 +28,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use forms::save_health_form;
 use reqwest::{header, Client};
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
@@ -162,6 +165,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
         .route("/chat/models", get(get_ai_models))
+        .route("/forms/health", post(save_health_form))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);
