@@ -105,6 +105,8 @@ impl Stemmer {
     pub fn stem_message(&self, message: &str) -> String {
         message
             .to_lowercase()
+            // Remove all punctuation so stems work properly
+            .replace(['(', ')', ',', '\"', '.', ';', ':', '\'', '?', '!'], "")
             .split_whitespace()
             .map(|s| self.stem(s))
             .fold(String::new(), |mut acc, s| {
