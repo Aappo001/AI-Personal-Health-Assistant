@@ -3,13 +3,13 @@ CREATE TABLE users (
 	first_name TEXT NOT NULL,
 	last_name TEXT,
 	username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-	email TEXT NOT NULL UNIQUE,
+	email TEXT NOT NULL UNIQUE COLLATE NOCASE,
 	password_hash TEXT NOT NULL,
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_username ON users (username);
+CREATE UNIQUE INDEX idx_users_username ON users (username);
 
 CREATE TRIGGER users_update_modified_at AFTER UPDATE ON users
 BEGIN

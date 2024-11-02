@@ -1,8 +1,7 @@
 use futures::StreamExt;
-use serde::{Deserialize, Serialize};
-use sqlx::{Execute, QueryBuilder, Sqlite, SqlitePool};
+use serde::Deserialize;
+use sqlx::{QueryBuilder, Sqlite};
 use tokio::sync::broadcast;
-use tracing::debug;
 
 use crate::{chat::ChatMessage, error::AppError, AppState};
 
@@ -34,6 +33,12 @@ impl Default for SearchOrder {
 // different depending on whether the search query matched the message or the stemmed message.
 // The rank column must be included in order to rank the results by relevance, otherwise
 // the database will return an error.
+//
+// Using union to query both the `message` and `stemmed_message` columns because nothing else worked.
+// Attempting to use something simpler like a WHERE clause with a condition for `message` and
+// another for `stemmed message`, while also using a ORDER BY clause to order the results by
+// rank will result in an error from the database saying that match is not allowed in the given context.
+// ¯\_(ツ)_/¯
 //
 // The final query will look something like:
 // SELECT *, messages_fts.rank FROM messages

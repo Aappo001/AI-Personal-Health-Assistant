@@ -9,9 +9,9 @@ use reqwest_streams::*;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::SqlitePool;
-use validator::ValidateRequired;
+use tracing::debug;
 
-use crate::{chat::ChatMessage, error::AppError, AppState};
+use crate::{error::AppError, AppState};
 
 use super::{broadcast_event, SendMessage, SocketResponse};
 
@@ -48,7 +48,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
     let mut body = json!({
         "model": model.name,
         "messages": [
-        { "role": "system", "content": "You are a medical professional who knows about medicine.  When the user tells you about a health problem that they are facing, continue probing through the problem to extract more information and attempt to gain a better understanding of a root cause and potential remedies. Do not simply give a list of potential causes without asking further questions. If you are unsure about something refer user to a doctor or medical professional." },
+        { "role": "system", "content": r#"You are a medical professional who knows about medicine.  When the user tells you about a health problem that they are facing, continue probing through the problem to extract more information and attempt to gain a better understanding of a root cause and potential remedies. Do not simply give a list of potential causes without asking further questions. If you are unsure about something refer user to a doctor or medical professional. The name of the user who sent the message will be enclosed in braces like "{username}:". You should refer to the user who you are responding to by name"# },
     ],
         "temperature": 0.5,
         "max_tokens": 1024,
@@ -59,7 +59,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
     // Populate the messages array with the messages in the conversation
     if let Some(req_messages) = body["messages"].as_array_mut() {
         // Query the messages as a stream to save memory
-        // This saves a tong on longer conversations
+        // This saves a ton on longer conversations
         let mut db_messages = sqlx::query!(
             "SELECT message, user_id, ai_model_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
             conversation_id
@@ -91,11 +91,11 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
                         // Prepend the user's username to the message only if they are not the
                         // sender of the previous message.
                         // Uses `{{{}}}` insteadd of `{{}}` because `{{}}` is used to escape curly braces
-                        cur_content.push_str(&format!("{{{}}}:{}", cur, message.message));
+                        cur_content.push_str(&format!("{{{}}}:", cur));
                     }
                 }
                 (None, Some(cur)) => {
-                    cur_content.push_str(&format!("{{{}}}:{}", cur, message.message));
+                    cur_content.push_str(&format!("{{{}}}:", cur));
                 }
                 (None, None) | (Some(_), None) => (),
             }
@@ -103,12 +103,11 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
             last_user = message.username;
             first = false;
         }
-        if !cur_content.is_empty() {
-            req_messages.push(json!({
-            "role": if last_user.is_some() { "user" } else { "assistant" },
-            "content": cur_content
-            }));
-        }
+        req_messages.push(json!({
+        "role": if last_user.is_some() { "user" } else { "assistant" },
+        "content": cur_content
+        }));
+        debug!("Querying AI model with: {:?}", req_messages);
     }
 
     let mut response = state

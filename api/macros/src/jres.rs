@@ -6,6 +6,7 @@ pub fn jres_impl(input: Punctuated<Expr, Comma>) -> TokenStream {
     let message_literal = input.first().unwrap();
     let field_idents = input.iter().skip(1).collect::<Vec<_>>();
 
+    #[allow(unused_variables)]
     let fields = field_idents.iter().map(|name| {
         quote! {
             "#name": #name

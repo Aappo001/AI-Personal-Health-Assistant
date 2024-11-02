@@ -15,10 +15,8 @@ pub mod utils;
 pub mod forms;
 use std::{
     fmt::Debug,
-    fs::{create_dir_all, File},
     net::SocketAddr,
     ops::Deref,
-    path::PathBuf,
     str::FromStr,
     sync::{atomic::AtomicI64, Arc},
 };
@@ -243,12 +241,6 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 /// Initialize the database by creating the database file and running the migrations.
 /// Returns a connection pool to the database.
 pub async fn init_db(db_url: &str) -> Result<SqlitePool> {
-    if let Ok(path) = PathBuf::from_str(db_url.strip_prefix(PROTOCOL).unwrap_or(db_url)) {
-        if !path.is_file() {
-            create_dir_all(path.parent().expect("Expected parent directory to exist"))?;
-            File::create(&path)?;
-        }
-    }
     let pool: SqlitePool = SqlitePool::connect_lazy_with(
         SqliteConnectOptions::from_str(db_url)?
             .foreign_keys(true)
