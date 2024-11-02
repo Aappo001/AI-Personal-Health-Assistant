@@ -1,7 +1,6 @@
 use axum::{
     extract::{Path, State},
     response::{IntoResponse, Response},
-    Json,
 };
 use chrono::NaiveDateTime;
 use macros::response;
@@ -50,7 +49,7 @@ pub async fn save_health_form(
     ).fetch_one(&state.pool).await?;
     Ok((
         StatusCode::CREATED,
-        Json(response!("Form successfully created", data)),
+        AppJson(response!("Form successfully created", data)),
     )
         .into_response())
 }
@@ -67,7 +66,7 @@ pub async fn get_health_form(
     )
     .fetch_one(&state.pool)
     .await?;
-    Ok((StatusCode::OK, Json(data)).into_response())
+    Ok((StatusCode::OK, AppJson(data)).into_response())
 }
 
 /// Get all the saved forms for the current user
@@ -82,7 +81,7 @@ pub async fn get_forms(
     )
     .fetch_all(&state.pool)
     .await?;
-    Ok((StatusCode::OK, Json(data)).into_response())
+    Ok((StatusCode::OK, AppJson(data)).into_response())
 }
 
 /// Get the most recent health form for the current user
@@ -124,7 +123,7 @@ pub async fn update_health_form(
 
     Ok((
         StatusCode::CREATED,
-        Json(response!("Form successfully created", data)),
+        AppJson(response!("Form successfully created", data)),
     )
         .into_response())
 }

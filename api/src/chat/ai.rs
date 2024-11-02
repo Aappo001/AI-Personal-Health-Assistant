@@ -1,17 +1,17 @@
 use axum::{
     extract::State,
-    response::{IntoResponse, Json, Response},
+    response::{IntoResponse, Response},
 };
 use dotenvy::var;
 use futures::StreamExt;
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
-use serde_json::json;
+use sonic_rs::{json, JsonValueTrait, JsonValueMutTrait};
 use sqlx::SqlitePool;
 use tracing::debug;
 
-use crate::{error::AppError, AppState};
+use crate::{error::{AppError, AppJson}, AppState};
 
 use super::{broadcast_event, SendMessage, SocketResponse};
 
@@ -61,7 +61,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
         // Query the messages as a stream to save memory
         // This saves a ton on longer conversations
         let mut db_messages = sqlx::query!(
-            "SELECT message, user_id, ai_model_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
+            "SELECT message, user_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
             conversation_id
         )
         .fetch(&state.pool);
@@ -127,7 +127,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
         .send()
         .await
         .map_err(AppError::from)?
-        .json_array_stream::<serde_json::Value>(2048);
+        .json_array_stream::<sonic_rs::Value>(2048);
 
     // The accumulated response from the AI model
     let mut res_content = String::new();
@@ -162,7 +162,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
 pub async fn get_ai_models(State(pool): State<SqlitePool>) -> Result<Response, AppError> {
     Ok((
         StatusCode::OK,
-        Json(
+        AppJson(
             sqlx::query_as!(AiModel, "SELECT * FROM ai_models")
                 .fetch_all(&pool)
                 .await

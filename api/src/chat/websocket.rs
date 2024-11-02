@@ -763,7 +763,7 @@ async fn handle_message(
 ) -> Result<(), AppError> {
     match msg {
         Message::Text(text) => {
-            let msg: SocketRequest = serde_json::from_str(&text)?;
+            let msg: SocketRequest = sonic_rs::from_str(&text)?;
             info!("Received {:?}", msg);
             match msg {
                 SocketRequest::SendMessage(mut send_message) => {
@@ -1080,7 +1080,7 @@ async fn send_message(
     if user.exp < chrono::Utc::now().timestamp() {
         return Ok(false);
     }
-    // *SAFETY* The `serde_json::to_string` function can safely be unwrapped because the `SocketResponse` enum
+    // *SAFETY* The `sonic_rs::to_string` function can safely be unwrapped because the `SocketResponse` enum
     // is serializable and will not panic
     // All responses should be serialized to JSON
     // and sent as Text
@@ -1088,7 +1088,7 @@ async fn send_message(
         SocketResponse::InternalCanceledGeneration => {}
         _ => {
             sender
-                .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                .send(Message::Text(sonic_rs::to_string(&msg).unwrap()))
                 .await?;
         }
     }

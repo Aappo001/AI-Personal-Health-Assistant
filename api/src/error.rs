@@ -2,13 +2,17 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use axum::{
-    extract::rejection::JsonRejection,
-    http::StatusCode,
+    async_trait,
+    extract::{
+        rejection::{JsonRejection, MissingJsonContentType},
+        FromRequest, Request,
+    },
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
-use axum_macros::FromRequest;
-use serde::Serialize;
+use bytes::{BufMut, Bytes, BytesMut};
+use reqwest::header;
+use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, warn};
 use validator::Validate;
 
@@ -20,7 +24,7 @@ use crate::auth::JwtError;
 pub enum AppError {
     JsonRejection(JsonRejection),
     SqlxError(sqlx::Error),
-    SerdeError(serde_json::Error),
+    SerdeError(sonic_rs::Error),
     ValidationError(Vec<AppValidationError>),
     AuthError(anyhow::Error),
     UserError((StatusCode, Box<str>)),
@@ -44,7 +48,7 @@ impl From<AppError> for ErrorResponse {
     }
 }
 
-impl From<JwtError> for ErrorResponse{
+impl From<JwtError> for ErrorResponse {
     fn from(value: JwtError) -> Self {
         ErrorResponse {
             error_type: "AuthError".to_owned(),
@@ -59,8 +63,6 @@ impl From<JwtError> for ErrorResponse{
 // `axum::Json` responds with plain text if the input is invalid.
 /// A wrapper around `axum::Json` that provides a custom rejection to return JSON errors
 /// and allows us to intercept errors and provide a more detailed error message
-#[derive(FromRequest)]
-#[from_request(via(axum::Json), rejection(AppError))]
 pub struct AppJson<T>(pub T);
 
 /// A more descriptive error message for validation errors
@@ -114,7 +116,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::JsonRejection(rejection) => (rejection.status(), rejection.body_text()),
             AppError::ValidationError(e) => {
-                (StatusCode::BAD_REQUEST, serde_json::to_string(&e).unwrap())
+                (StatusCode::BAD_REQUEST, sonic_rs::to_string(&e).unwrap())
             }
             AppError::SerdeError(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             AppError::AuthError(e) => (StatusCode::UNAUTHORIZED, e.to_string()),
@@ -127,7 +129,7 @@ impl IntoResponse for AppError {
         // Return a JSON response with the error type and message.
         (
             status,
-            Json(ErrorResponse {
+            AppJson(ErrorResponse {
                 error_type: self.r#type(),
                 message,
             }),
@@ -157,7 +159,7 @@ impl Display for AppError {
         match self {
             AppError::JsonRejection(rejection) => write!(f, "{}", rejection.body_text()),
             AppError::SerdeError(e) => write!(f, "{}", e),
-            AppError::ValidationError(e) => write!(f, "{}", serde_json::to_string(&e).unwrap()),
+            AppError::ValidationError(e) => write!(f, "{}", sonic_rs::to_string(&e).unwrap()),
             AppError::AuthError(e) => write!(f, "{}", e),
             AppError::SqlxError(e) => write!(f, "{}", e),
             AppError::Generic(err) => write!(f, "{}", err),
@@ -180,13 +182,111 @@ where
         // We don't need to add `AuthError` or `ValidationError` because we will handle those
         // explicitly in our application.
         if err.downcast_ref::<JsonRejection>().is_some() {
-            return Self::JsonRejection(err.downcast().unwrap())
+            return Self::JsonRejection(err.downcast().unwrap());
         } else if err.downcast_ref::<sqlx::Error>().is_some() {
             return Self::SqlxError(err.downcast().unwrap());
-        } else if err.downcast_ref::<serde_json::Error>().is_some() {
+        } else if err.downcast_ref::<sonic_rs::Error>().is_some() {
             return Self::SerdeError(err.downcast().unwrap());
         } else {
             return Self::Generic(err);
+        }
+    }
+}
+
+impl<T> AppJson<T>
+where
+    T: DeserializeOwned,
+{
+    /// Construct a `Json<T>` from a byte slice. Most users should prefer to use the `FromRequest` impl
+    /// but special cases may require first extracting a `Request` into `Bytes` then optionally
+    /// constructing a `Json<T>`.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, AppError> {
+        let deserializer = &mut sonic_rs::Deserializer::from_slice(bytes);
+
+        let value = match serde::Deserialize::deserialize(deserializer) {
+            Ok(value) => value,
+            Err(err) => {
+                return Err(err.into());
+            }
+        };
+
+        Ok(AppJson(value))
+    }
+}
+
+fn json_content_type(headers: &HeaderMap) -> bool {
+    let content_type = if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
+        content_type
+    } else {
+        return false;
+    };
+
+    let content_type = if let Ok(content_type) = content_type.to_str() {
+        content_type
+    } else {
+        return false;
+    };
+
+    let mime = if let Ok(mime) = content_type.parse::<mime::Mime>() {
+        mime
+    } else {
+        return false;
+    };
+
+    let is_json_content_type = mime.type_() == "application"
+        && (mime.subtype() == "json" || mime.suffix().map_or(false, |name| name == "json"));
+
+    is_json_content_type
+}
+
+#[async_trait]
+impl<T, S> FromRequest<S> for AppJson<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        if json_content_type(req.headers()) {
+            let bytes = Bytes::from_request(req, state).await?;
+            Self::from_bytes(&bytes)
+        } else {
+            Err(AppError::JsonRejection(
+                JsonRejection::MissingJsonContentType(MissingJsonContentType::default()),
+            ))
+        }
+    }
+}
+
+// Use `AppJson` instead of `Json` to utilize `sonic_rs` for serialization
+// instead of `serde_json` which is slower.
+impl<T> IntoResponse for AppJson<T>
+where
+    T: Serialize,
+{
+    fn into_response(self) -> Response {
+        // Use a small initial capacity of 128 bytes like sonic_rs::to_vec
+        // https://docs.rs/sonic_rs/1.0.82/src/sonic_rs/ser.rs.html#2189
+        let mut buf = BytesMut::with_capacity(128).writer();
+        match sonic_rs::to_writer(&mut buf, &self.0) {
+            Ok(()) => (
+                [(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
+                )],
+                buf.into_inner().freeze(),
+            )
+                .into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+                )],
+                err.to_string(),
+            )
+                .into_response(),
         }
     }
 }
