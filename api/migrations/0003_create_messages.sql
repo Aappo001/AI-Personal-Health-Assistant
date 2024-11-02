@@ -3,8 +3,6 @@ CREATE TABLE ai_models (
 	name TEXT NOT NULL
 );
 
-INSERT INTO ai_models (name) VALUES ('mistralai/Mistral-Nemo-Instruct-2407');
-
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     message TEXT NOT NULL COLLATE NOCASE,

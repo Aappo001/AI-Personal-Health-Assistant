@@ -9,6 +9,7 @@ use reqwest_streams::*;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::SqlitePool;
+use validator::ValidateRequired;
 
 use crate::{chat::ChatMessage, error::AppError, AppState};
 
@@ -60,36 +61,51 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
         // Query the messages as a stream to save memory
         // This saves a tong on longer conversations
         let mut db_messages = sqlx::query!(
-            "SELECT message, user_id, ai_model_id FROM messages WHERE conversation_id = ?",
+            "SELECT message, user_id, ai_model_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
             conversation_id
         )
         .fetch(&state.pool);
 
         // If we don't alternate between user and assistant messages, the AI will give us an error and
         // get stuck so we need to concatenate consecutive user and system messages together
-        let mut last_role;
-        let mut cur_role = "user";
+        let mut last_user = None;
         let mut cur_content = String::new();
+        let mut first = true;
         while let Some(message) = db_messages.next().await {
             let message = message?;
-            last_role = cur_role;
-            cur_role = if message.user_id.is_some() {
-                "user"
-            } else {
-                "assistant"
-            };
-            if last_role != cur_role {
-                req_messages.push(json!({
-                    "role": last_role,
-                    "content": cur_content
-                }));
-                cur_content.clear();
+            match (&last_user, &message.username) {
+                // If the last message was from a user and the current message is from the assistant
+                // or vice versa
+                (None, Some(_)) | (Some(_), None) if !first => {
+                    req_messages.push(json!({
+                        "role": if last_user.is_some() { "user" } else { "assistant" },
+                        "content": cur_content
+                    }));
+                    cur_content.clear();
+                }
+                _ => (),
+            }
+            match (&last_user, &message.username) {
+                (Some(last), Some(cur)) => {
+                    if last != cur {
+                        // Prepend the user's username to the message only if they are not the
+                        // sender of the previous message.
+                        // Uses `{{{}}}` insteadd of `{{}}` because `{{}}` is used to escape curly braces
+                        cur_content.push_str(&format!("{{{}}}:{}", cur, message.message));
+                    }
+                }
+                (None, Some(cur)) => {
+                    cur_content.push_str(&format!("{{{}}}:{}", cur, message.message));
+                }
+                (None, None) | (Some(_), None) => (),
             }
             cur_content.push_str(&message.message);
+            last_user = message.username;
+            first = false;
         }
         if !cur_content.is_empty() {
             req_messages.push(json!({
-            "role": cur_role,
+            "role": if last_user.is_some() { "user" } else { "assistant" },
             "content": cur_content
             }));
         }

@@ -3,7 +3,7 @@
   -- ( ) AI model querying
   --- ( ) Requerying AI model (maybe via an empty user message?)
   ---- Should the message be trimmed to prevent accidental whitespace only messages instead of potential queries?
-  --- ( ) Support for group chat queries (prepend each user's message with {user}:)
+  --- (x) Support for group chat queries (prepend each user's message with {user}:)
   --- (x) Streaming model responses to client
   -- (x) User model selection (allow multiple models selectable by user)
   - ( ) Integrate Statistics Tracking
