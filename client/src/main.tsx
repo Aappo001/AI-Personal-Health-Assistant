@@ -12,6 +12,7 @@ import { ChatHome } from "./components/ChatHome.tsx";
 import ChatMessagePage from "./components/ChatMessagePage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import ProfilePage from "./components/ProfilePage.tsx";
+import UserHealthForm from "./components/UserForm.tsx";
 
 const router = createBrowserRouter([
   {
@@ -53,6 +54,11 @@ const router = createBrowserRouter([
         <ProfilePage />
       </ProtectedRoute>
     ),
+    errorElement: <PageNotFound />,
+  },
+  {
+  path: "/healthform", 
+    element: <UserHealthForm />,
     errorElement: <PageNotFound />,
   },
 ]);
