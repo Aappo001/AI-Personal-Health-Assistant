@@ -8,14 +8,13 @@ use axum::{
         HeaderMap, StatusCode,
     },
     response::{IntoResponse, Response},
-    Json,
 };
 use dotenvy_macro::dotenv;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use macros::response;
 use password_auth::VerifyError;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use sonic_rs::json;
 use sqlx::SqlitePool;
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
@@ -123,7 +122,7 @@ pub async fn create_user(
 
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "message": "User created" })),
+        AppJson(json!({ "message": "User created" })),
     )
         .into_response())
 }
@@ -150,7 +149,7 @@ pub async fn check_username(
     {
         Some(_) => Ok((
             StatusCode::CONFLICT,
-            Json(response!("Username is already in use")),
+            AppJson(response!("Username is already in use")),
         )
             .into_response()),
         None => Ok(StatusCode::OK.into_response()),
@@ -186,7 +185,7 @@ pub async fn check_email(
     {
         Some(_) => Ok((
             StatusCode::CONFLICT,
-            Json(response!("Email is already in use")),
+            AppJson(response!("Email is already in use")),
         )
             .into_response()),
         None => Ok(StatusCode::OK.into_response()),
@@ -315,7 +314,7 @@ pub async fn authenticate_user(
         )],
         // Don't need to set the content-type header since axum does
         // it for us when we wrap the body in a `Json` struct
-        Json(response!("Successfully authenticated", user)),
+        AppJson(response!("Successfully authenticated", user)),
     )
         .into_response())
 }
@@ -352,7 +351,7 @@ pub async fn get_user_from_token(
             "User not found".into(),
         )));
     };
-    Ok((StatusCode::OK, Json(user)).into_response())
+    Ok((StatusCode::OK, AppJson(user)).into_response())
 }
 
 pub fn authorize_user(headers: &HeaderMap) -> Result<UserToken, AppError> {
@@ -406,7 +405,7 @@ pub async fn get_user_by_id(
         )));
     };
 
-    Ok((StatusCode::OK, Json(user)).into_response())
+    Ok((StatusCode::OK, AppJson(user)).into_response())
 }
 
 pub async fn get_user_by_username(
@@ -427,7 +426,7 @@ pub async fn get_user_by_username(
         )));
     };
 
-    Ok((StatusCode::OK, Json(user)).into_response())
+    Ok((StatusCode::OK, AppJson(user)).into_response())
 }
 
 pub async fn update_user(
@@ -477,7 +476,7 @@ pub async fn update_user(
             header::AUTHORIZATION,
             format!("Bearer {}", generate_jwt(&token_data)?),
         )],
-        Json(response!("User successfully updated", user)),
+        AppJson(response!("User successfully updated", user)),
     )
         .into_response())
 }
@@ -512,7 +511,7 @@ pub async fn delete_user(
         .execute(&pool)
         .await?;
 
-    Ok((StatusCode::OK, Json(response!("User deleted"))).into_response())
+    Ok((StatusCode::OK, AppJson(response!("User deleted"))).into_response())
 }
 
 fn generate_jwt(token_data: &UserToken) -> Result<String, AppError> {

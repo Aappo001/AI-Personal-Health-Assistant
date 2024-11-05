@@ -14,6 +14,7 @@ import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import ProfilePage from "./components/ProfilePage.tsx";
 import WebsocketTesting from "./components/WebsocketTesting.tsx";
 import AntiAuthGuard from "./components/AntiAuthGuard.tsx";
+import UserHealthForm from "./components/UserForm.tsx";
 
 const router = createBrowserRouter([
   {
@@ -68,6 +69,11 @@ const router = createBrowserRouter([
         <WebsocketTesting />
       </ProtectedRoute>
     ),
+    errorElement: <PageNotFound />,
+  },
+  {
+    path: "/healthform",
+    element: <UserHealthForm />,
     errorElement: <PageNotFound />,
   },
 ]);

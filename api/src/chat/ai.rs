@@ -1,16 +1,17 @@
 use axum::{
     extract::State,
-    response::{IntoResponse, Json, Response},
+    response::{IntoResponse, Response},
 };
 use dotenvy::var;
 use futures::StreamExt;
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
-use serde_json::json;
+use sonic_rs::{json, JsonValueTrait, JsonValueMutTrait};
 use sqlx::SqlitePool;
+use tracing::debug;
 
-use crate::{chat::ChatMessage, error::AppError, AppState};
+use crate::{error::{AppError, AppJson}, AppState};
 
 use super::{broadcast_event, SendMessage, SocketResponse};
 
@@ -47,7 +48,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
     let mut body = json!({
         "model": model.name,
         "messages": [
-        { "role": "system", "content": "You are a medical professional who knows about medicine.  When the user tells you about a health problem that they are facing, continue probing through the problem to extract more information and attempt to gain a better understanding of a root cause and potential remedies. Do not simply give a list of potential causes without asking further questions. If you are unsure about something refer user to a doctor or medical professional." },
+        { "role": "system", "content": r#"You are a medical professional who knows about medicine.  When the user tells you about a health problem that they are facing, continue probing through the problem to extract more information and attempt to gain a better understanding of a root cause and potential remedies. Do not simply give a list of potential causes without asking further questions. If you are unsure about something refer user to a doctor or medical professional. The name of the user who sent the message will be enclosed in braces like "{username}:". You should refer to the user who you are responding to by name"# },
     ],
         "temperature": 0.5,
         "max_tokens": 1024,
@@ -58,41 +59,55 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
     // Populate the messages array with the messages in the conversation
     if let Some(req_messages) = body["messages"].as_array_mut() {
         // Query the messages as a stream to save memory
-        // This saves a tong on longer conversations
+        // This saves a ton on longer conversations
         let mut db_messages = sqlx::query!(
-            "SELECT message, user_id, ai_model_id FROM messages WHERE conversation_id = ?",
+            "SELECT message, user_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
             conversation_id
         )
         .fetch(&state.pool);
 
         // If we don't alternate between user and assistant messages, the AI will give us an error and
         // get stuck so we need to concatenate consecutive user and system messages together
-        let mut last_role;
-        let mut cur_role = "user";
+        let mut last_user = None;
         let mut cur_content = String::new();
+        let mut first = true;
         while let Some(message) = db_messages.next().await {
             let message = message?;
-            last_role = cur_role;
-            cur_role = if message.user_id.is_some() {
-                "user"
-            } else {
-                "assistant"
-            };
-            if last_role != cur_role {
-                req_messages.push(json!({
-                    "role": last_role,
-                    "content": cur_content
-                }));
-                cur_content.clear();
+            match (&last_user, &message.username) {
+                // If the last message was from a user and the current message is from the assistant
+                // or vice versa
+                (None, Some(_)) | (Some(_), None) if !first => {
+                    req_messages.push(json!({
+                        "role": if last_user.is_some() { "user" } else { "assistant" },
+                        "content": cur_content
+                    }));
+                    cur_content.clear();
+                }
+                _ => (),
+            }
+            match (&last_user, &message.username) {
+                (Some(last), Some(cur)) => {
+                    if last != cur {
+                        // Prepend the user's username to the message only if they are not the
+                        // sender of the previous message.
+                        // Uses `{{{}}}` insteadd of `{{}}` because `{{}}` is used to escape curly braces
+                        cur_content.push_str(&format!("{{{}}}:", cur));
+                    }
+                }
+                (None, Some(cur)) => {
+                    cur_content.push_str(&format!("{{{}}}:", cur));
+                }
+                (None, None) | (Some(_), None) => (),
             }
             cur_content.push_str(&message.message);
+            last_user = message.username;
+            first = false;
         }
-        if !cur_content.is_empty() {
-            req_messages.push(json!({
-            "role": cur_role,
-            "content": cur_content
-            }));
-        }
+        req_messages.push(json!({
+        "role": if last_user.is_some() { "user" } else { "assistant" },
+        "content": cur_content
+        }));
+        debug!("Querying AI model with: {:?}", req_messages);
     }
 
     let mut response = state
@@ -112,7 +127,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
         .send()
         .await
         .map_err(AppError::from)?
-        .json_array_stream::<serde_json::Value>(2048);
+        .json_array_stream::<sonic_rs::Value>(2048);
 
     // The accumulated response from the AI model
     let mut res_content = String::new();
@@ -147,7 +162,7 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
 pub async fn get_ai_models(State(pool): State<SqlitePool>) -> Result<Response, AppError> {
     Ok((
         StatusCode::OK,
-        Json(
+        AppJson(
             sqlx::query_as!(AiModel, "SELECT * FROM ai_models")
                 .fetch_all(&pool)
                 .await

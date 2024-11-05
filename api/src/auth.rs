@@ -1,12 +1,11 @@
 use std::fmt::Display;
 
-use crate::error::ErrorResponse;
+use crate::error::{AppJson, ErrorResponse};
 use axum::{
     async_trait,
     extract::FromRequestParts,
     http::{header::AUTHORIZATION, request::Parts, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use dotenvy_macro::dotenv;
 use jsonwebtoken::{decode, DecodingKey, Validation};
@@ -33,7 +32,7 @@ impl Display for JwtError {
 
 impl IntoResponse for JwtError {
     fn into_response(self) -> Response {
-        (StatusCode::UNAUTHORIZED, Json(ErrorResponse::from(self))).into_response()
+        (StatusCode::UNAUTHORIZED, AppJson(ErrorResponse::from(self))).into_response()
     }
 }
 

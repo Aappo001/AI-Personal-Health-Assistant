@@ -4,11 +4,10 @@ use axum::{
     },
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{prelude::FromRow, SqlitePool};
 
 use crate::{
     auth::JwtAuth,
@@ -51,7 +50,7 @@ pub async fn get_user_conversations(
     )
     .fetch_all(&pool)
     .await?;
-    Ok((StatusCode::OK, Json(res)).into_response())
+    Ok((StatusCode::OK, AppJson(res)).into_response())
 }
 
 /// Create a conversation between the user and the AI from an initial message
@@ -65,7 +64,7 @@ pub async fn create_conversation_rest(
     // let title = &init_message.message[..cmp::min(init_message.message.len(), 32)];
     Ok((
         StatusCode::OK,
-        Json(create_conversation(&pool, &init_message, &user).await?),
+        AppJson(create_conversation(&pool, &init_message, &user).await?),
     )
         .into_response())
 }
@@ -113,7 +112,7 @@ pub async fn create_conversation(
 
 /// A message in a conversation
 // Might add a field for whether the message should trigger the AI
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     /// The id of the message
@@ -165,7 +164,7 @@ pub async fn get_conversation(
         )
         .fetch_all(&pool)
         .await?;
-    Ok((StatusCode::OK, Json(res)).into_response())
+    Ok((StatusCode::OK, AppJson(res)).into_response())
 }
 
 /// A read receipt for a conversation

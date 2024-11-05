@@ -3,17 +3,17 @@
   -- ( ) AI model querying
   --- ( ) Requerying AI model (maybe via an empty user message?)
   ---- Should the message be trimmed to prevent accidental whitespace only messages instead of potential queries?
-  --- ( ) Support for group chat queries (prepend each user's message with {user}:)
+  --- (x) Support for group chat queries (prepend each user's message with {user}:)
   --- (x) Streaming model responses to client
   -- (x) User model selection (allow multiple models selectable by user)
   - ( ) Integrate Statistics Tracking
   -- ( ) Add a form that users can fill out daily to collect statistics over time and view trends
-  --- Forms can include Height, Weight, Mood, Sleep, Exercise, Food, etc.
-  --- If a user filled out a form in the past 24 hours, it will automatically be provided to the AI model for analysis so that the user can get more detailed feedback
-  - ( ) Add editing account information (changing password, email, etc.)
+  --- (x) Forms can include Height, Weight, Mood, Sleep, Exercise, Food, etc.
+  --- ( ) If a user filled out a form in the past 24 hours, it will automatically be provided to the AI model for analysis so that the user can get more detailed feedback
+  - (x) Add editing account information (changing password, email, etc.)
   - ( ) Figure out how to handle user data deletion
-  - ( ) Integrate message searching
-  -- ( ) Sorting search results
+  - (x) Integrate message searching
+  -- (x) Sorting search results
   - ( ) Store user settings
   - ( ) Expand conversation functionality
   -- ( ) Conversation ownership
