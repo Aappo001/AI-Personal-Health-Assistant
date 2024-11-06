@@ -9,12 +9,15 @@ CREATE TABLE messages (
     stemmed_message TEXT COLLATE NOCASE,
     user_id INTEGER,
     ai_model_id INTEGER,
+    file_id INTEGER,
+    file_name TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     conversation_id INTEGER NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id),
     FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (ai_model_id) REFERENCES ai_models(id)
+    FOREIGN KEY (ai_model_id) REFERENCES ai_models(id),
+    FOREIGN KEY (file_id) REFERENCES files(id)
 );
 
 CREATE TRIGGER update_modified_at AFTER UPDATE ON messages

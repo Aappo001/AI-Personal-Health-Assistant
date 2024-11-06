@@ -110,11 +110,12 @@ pub async fn upload_file(
             .id
     };
 
+    let upload_name = upload_data.file_name.unwrap_or(file_name.clone());
     let id = sqlx::query!(
             "INSERT INTO file_uploads (file_id, user_id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING file_id as id",
             file_id,
             user.id,
-            upload_data.file_name
+            upload_name
         )
         .fetch_one(&state)
         .await?.id;

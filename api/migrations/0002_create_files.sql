@@ -15,7 +15,7 @@ CREATE TABLE file_uploads (
     name TEXT NOT NULL,
     -- When this user uploaded the file
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (file_id, user_id),
+    PRIMARY KEY (file_id, user_id, name),
     FOREIGN KEY (file_id) REFERENCES files(id),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
