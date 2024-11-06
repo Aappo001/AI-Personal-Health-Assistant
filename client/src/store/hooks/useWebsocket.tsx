@@ -25,15 +25,12 @@ const handleMessage = (type: string, data: any, ws: WebSocket, dispatch: AppDisp
   switch (type) {
     case SocketResponse.Message:
       console.log(`Received message: ${data.message} from user ${data.userId}`);
-
-      console.log(JSON.stringify(data));
       dispatch(
         pushMessage({
           id: data.conversationId,
           message: { userId: data.userId, content: data.message },
         })
       );
-
       break;
     case SocketResponse.FriendRequest:
       console.log("Friend Request sent or received");
@@ -54,7 +51,6 @@ const handleMessage = (type: string, data: any, ws: WebSocket, dispatch: AppDisp
       break;
     case SocketResponse.FriendData:
       console.log(`Friends with user id ${data.id} at ${data.created_at}`);
-
       const privateUser = requestFriendsSchema.parse(data);
       getUserFromId(privateUser.id)
         .then((user) => {

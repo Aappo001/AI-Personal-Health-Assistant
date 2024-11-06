@@ -45,7 +45,7 @@ export default function ChatSidebar() {
       userMap[friend.id] = friend.username;
     });
     userMapDispatch({ ...userMap, ...newUserMap });
-  }, friendStore);
+  }, [friendStore]);
 
   return (
     <>
@@ -57,6 +57,7 @@ export default function ChatSidebar() {
             id={parseInt(conversationId)}
             activeIndex={activeConvo}
             onClick={handleClick}
+            key={`convo-${conversationId}`}
           />
         ))}
         {/* {friendStore &&

@@ -18,8 +18,8 @@ export default function ChatMessagePage() {
   return (
     <div className="flex flex-col justify-between items-center w-screen h-screen py-32">
       <h1 className="text-6xl text-offwhite">Conversation {id}</h1>
-      {messageStore[parseInt(id)]?.map((message) => (
-        <p className="text-xl text-offwhite">
+      {messageStore[parseInt(id)]?.map((message, i) => (
+        <p className="text-xl text-offwhite" key={`msg-${i}`}>
           From {userMap[message.userId]}: {message.content}
         </p>
       ))}
