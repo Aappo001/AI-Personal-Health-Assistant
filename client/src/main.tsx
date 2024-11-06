@@ -47,7 +47,7 @@ const router = createBrowserRouter([
         errorElement: <PageNotFound />,
       },
       {
-        path: "/chat/messages/:friend",
+        path: "/chat/messages/:id",
         element: <ChatMessagePage />,
         errorElement: <PageNotFound />,
       },

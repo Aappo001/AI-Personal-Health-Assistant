@@ -23,7 +23,7 @@ export default function Chat() {
       <UserMapContext initialState={{ [userStore.id]: userStore.username }}>
         <Background color="black">
           <div className="relative h-screen">
-            <ChatSidebar friends={friends} colors={colors} />
+            <ChatSidebar />
             <Outlet />
           </div>
         </Background>
