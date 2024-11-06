@@ -219,6 +219,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/forms", get(get_forms))
         // Used to upload files to the server
         .route("/upload", post(upload_file))
+        // Used to upload files to the server
+        .nest_service("/upload/", ServeDir::new("uploads"))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);
