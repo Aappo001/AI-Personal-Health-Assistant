@@ -22,9 +22,12 @@ const messageSlice = createSlice({
             const {id, message} = action.payload
             const oldMessages = state.messages[id] ?? []
             state.messages = {...state.messages, [id]: [...oldMessages, message]}
+        },
+        initializeConversationId: (state, action: PayloadAction<number>) => {
+            state.messages = {...state.messages, [action.payload]: undefined}
         }
     }
 })
 
-export const { pushMessage } = messageSlice.actions
+export const { pushMessage, initializeConversationId } = messageSlice.actions
 export default messageSlice.reducer

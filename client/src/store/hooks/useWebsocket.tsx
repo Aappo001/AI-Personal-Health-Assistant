@@ -17,7 +17,7 @@ import {
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
 import { addFriend } from "../friendsSlice";
-import { pushMessage } from "../messageSlice";
+import { initializeConversationId, pushMessage } from "../messageSlice";
 import { AppDispatch } from "../store";
 
 const handleMessage = (type: string, data: any, dispatch: AppDispatch) => {
@@ -46,6 +46,8 @@ const handleMessage = (type: string, data: any, dispatch: AppDispatch) => {
       break;
     case SocketResponse.Conversation:
       console.log(`User present in conversation with id ${data.id}`);
+      console.log(JSON.stringify(data));
+      dispatch(initializeConversationId(data.id));
       break;
     case SocketResponse.Error:
       console.log(`SocketResponse Error: ${data.message}`);

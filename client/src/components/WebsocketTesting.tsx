@@ -115,9 +115,12 @@ export default function WebsocketTesting() {
           >
             Request Friends
           </button>
-          {messages.messages && (
-            <h1 className="text-3xl text-lilac">{JSON.stringify(messages.messages)}</h1>
-          )}
+          {messages.messages &&
+            Object.entries(messages.messages).map(([conversationId, content]) => (
+              <h1 className="text-xl text-offwhite">
+                ID: {conversationId}, Message: {JSON.stringify(content)}
+              </h1>
+            ))}
         </div>
       </Background>
     </>
