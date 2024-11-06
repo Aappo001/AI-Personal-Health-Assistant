@@ -1,8 +1,8 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { PublicUser } from "../types";
+import { Friend } from "../types";
 
 interface FriendsState {
-  friends: PublicUser[];
+  friends: Friend[];
 }
 
 const initialState: FriendsState = {
@@ -13,7 +13,7 @@ const friendsSlice = createSlice({
   name: "friends",
   initialState,
   reducers: {
-    addFriend: (state, action: PayloadAction<PublicUser>) => {
+    addFriend: (state, action: PayloadAction<Friend>) => {
       const existingFriend = state.friends.find((friend) => friend.id === action.payload.id);
       if (existingFriend) return;
       state.friends.push(action.payload);
@@ -21,13 +21,13 @@ const friendsSlice = createSlice({
     removeFriend: (state, action: PayloadAction<number>) => {
       state.friends = state.friends.filter((friend) => friend.id !== action.payload);
     },
-    updateFriend: (state, action: PayloadAction<PublicUser>) => {
+    updateFriend: (state, action: PayloadAction<Friend>) => {
       const index = state.friends.findIndex((friend) => friend.id === action.payload.id);
       if (index !== -1) {
         state.friends[index] = action.payload;
       }
     },
-    setFriends: (state, action: PayloadAction<PublicUser[]>) => {
+    setFriends: (state, action: PayloadAction<Friend[]>) => {
       state.friends = action.payload;
     },
   },

@@ -109,6 +109,10 @@ export const generateRandomColorArray = (length: number): string[] => {
   return convoColors;
 };
 
+export const getRandomColor = () => {
+  return mainColors[Math.floor(Math.random() * mainColors.length)]
+}
+
 export const getJwtFromResponseHeader = (response: AxiosResponse) => {
   const token = response.headers['authorization']?.split(" ")[1]
   if (!token) return "";

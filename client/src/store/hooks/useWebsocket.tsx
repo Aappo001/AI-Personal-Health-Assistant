@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { getJwt, getUserFromId, getUserIdFromUsername } from "../../utils/utils";
+import {
+  getJwt,
+  getRandomColor,
+  getUserFromId,
+  getUserIdFromUsername,
+} from "../../utils/utils";
 import {
   wsSendFriendRequest,
   SocketResponse,
@@ -87,7 +92,8 @@ export default function useWebsocketSetup() {
         getUserFromId(privateUser.id)
           .then((user) => {
             if (!user) return;
-            dispatch(addFriend(user));
+            const friend = { ...user, color: getRandomColor() };
+            dispatch(addFriend(friend));
           })
           .catch((err) => {
             console.error(`Xiao hong shu Error occurred getting user from id:  ${err}`);
