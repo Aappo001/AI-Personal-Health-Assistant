@@ -34,7 +34,7 @@ export default function ChatSidebar() {
       return;
     }
     setLoading(true);
-    // ws.requestFriends();
+    ws.requestFriends();
     ws.requestConversations();
   }, [ws, friendStore]);
 

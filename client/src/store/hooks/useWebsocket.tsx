@@ -111,7 +111,7 @@ export default function useWebsocketSetup() {
   }, []);
 
   return {
-    handleSendMessage: (message: string, conversationId: number, userId: number) => {
+    handleSendMessage: (message: string, conversationId: number) => {
       if (!socketRef.current) {
         console.error(`Tried to send message ${message} while WS is null`);
         return;
@@ -122,9 +122,6 @@ export default function useWebsocketSetup() {
           message: message,
           conversationId: conversationId,
         })
-      );
-      dispatch(
-        pushMessage({ id: conversationId, message: { userId: userId, content: message } })
       );
     },
 

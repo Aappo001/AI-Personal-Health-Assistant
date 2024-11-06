@@ -15,8 +15,6 @@ export const WebsocketContext = createContext<WebsocketContextType>(
 export default function Chat() {
   const ws = useWebsocketSetup();
   const userStore = useUserStore();
-  const friends = ["Levi", "Marco", "Karin", "Olivia", "O'saa", "Daan"];
-  const colors = generateRandomColorArray(friends.length);
 
   return (
     <WebsocketContext.Provider value={ws}>

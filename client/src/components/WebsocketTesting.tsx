@@ -101,7 +101,7 @@ export default function WebsocketTesting() {
 
           <button
             onClick={() => {
-              handleSendMessage(message, convoId, userId);
+              handleSendMessage(message, convoId);
             }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >

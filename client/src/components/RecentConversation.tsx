@@ -1,5 +1,3 @@
-import { Friend } from "../types";
-
 interface Props {
   // friend: Friend;
   id: number;
