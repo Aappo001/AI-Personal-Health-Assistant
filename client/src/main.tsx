@@ -15,6 +15,7 @@ import ProfilePage from "./components/ProfilePage.tsx";
 import WebsocketTesting from "./components/WebsocketTesting.tsx";
 import AntiAuthGuard from "./components/AntiAuthGuard.tsx";
 import UserHealthForm from "./components/UserForm.tsx";
+import FriendsPage from "./components/FriendsPage.tsx";
 
 const router = createBrowserRouter([
   {
@@ -49,6 +50,11 @@ const router = createBrowserRouter([
       {
         path: "/chat/messages/:id",
         element: <ChatMessagePage />,
+        errorElement: <PageNotFound />,
+      },
+      {
+        path: "/chat/friends",
+        element: <FriendsPage />,
         errorElement: <PageNotFound />,
       },
     ],

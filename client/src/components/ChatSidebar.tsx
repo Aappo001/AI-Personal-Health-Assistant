@@ -20,6 +20,9 @@ export default function ChatSidebar() {
     if (id === activeConvo) {
       setActiveConvo(-1);
       navigate("/chat", { replace: true });
+    } else if (id === -2) {
+      setActiveConvo(id);
+      navigate("/chat/friends");
     } else {
       setActiveConvo(id);
       // const friend = userMap[id];
@@ -52,6 +55,14 @@ export default function ChatSidebar() {
       <div className="absolute w-[23vw] h-full flex flex-col justify-center items-center gap-4">
         {loading && <p className="text-3xl text-offwhite">You have no friends!</p>}
         {userMap && <p className="text-xl text-offwhite">{JSON.stringify(userMap)}</p>}
+        <div
+          className={`w-10/12 bg-main-grey rounded-lg cursor-pointer ${
+            activeConvo === -2 && "bg-slate-700"
+          }`}
+          onClick={() => handleClick(-2)}
+        >
+          <p className="text-xl text-offwhite p-4">Friends List</p>
+        </div>
         {Object.entries(messageStore).map(([conversationId, _]) => (
           <RecentConversation
             id={parseInt(conversationId)}

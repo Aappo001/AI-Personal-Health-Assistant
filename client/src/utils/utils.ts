@@ -21,6 +21,11 @@ export async function RegisterUser(
   }
 }
 
+export async function checkUsername(username: string): Promise<boolean>{
+  const response = await fetch(`http://localhost:3000/api/check/username/${username}`)
+  return response.status === 200
+}
+
 export function debounce<T extends unknown[]>(func: (...args: T) => void, delay: number):
   (...args: T) => void {
   let timer: number | null = null;
