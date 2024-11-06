@@ -40,11 +40,11 @@ export default function ChatSidebar() {
 
   useEffect(() => {
     if (friendStore.length === 0) return;
-    const userMap: UserIdMap = {};
+    const newUserMap: UserIdMap = {};
     friendStore.forEach((friend) => {
       userMap[friend.id] = friend.username;
     });
-    userMapDispatch(userMap);
+    userMapDispatch({ ...userMap, ...newUserMap });
   }, friendStore);
 
   return (

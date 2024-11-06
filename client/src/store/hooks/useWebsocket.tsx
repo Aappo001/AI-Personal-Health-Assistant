@@ -20,7 +20,7 @@ import { addFriend } from "../friendsSlice";
 import { initializeConversationId, pushMessage } from "../messageSlice";
 import { AppDispatch } from "../store";
 
-const handleMessage = (type: string, data: any, dispatch: AppDispatch) => {
+const handleMessage = (type: string, data: any, ws: WebSocket, dispatch: AppDispatch) => {
   console.log("Received websocket response");
   switch (type) {
     case SocketResponse.Message:
@@ -46,14 +46,26 @@ const handleMessage = (type: string, data: any, dispatch: AppDispatch) => {
       break;
     case SocketResponse.Conversation:
       console.log(`User present in conversation with id ${data.id}`);
-      console.log(JSON.stringify(data));
       dispatch(initializeConversationId(data.id));
+      wsRequestMessages(ws, data.id);
       break;
     case SocketResponse.Error:
       console.log(`SocketResponse Error: ${data.message}`);
       break;
     case SocketResponse.FriendData:
       console.log(`Friends with user id ${data.id} at ${data.created_at}`);
+
+      const privateUser = requestFriendsSchema.parse(data);
+      getUserFromId(privateUser.id)
+        .then((user) => {
+          if (!user) return;
+          const friend = { ...user, color: getRandomColor() };
+          dispatch(addFriend(friend));
+        })
+        .catch((err) => {
+          console.error(`Xiao hong shu Error occurred getting user from id:  ${err}`);
+          console.log(JSON.stringify(data));
+        });
       break;
     default:
       console.log(`Unknown SocketResponseType: ${type}`);
@@ -88,22 +100,8 @@ export default function useWebsocketSetup() {
         return;
       }
 
-      //if dispatch can work outside of component, this should be inside of handleMessage()
-      if (type == SocketResponse.FriendData) {
-        const privateUser = requestFriendsSchema.parse(data);
-        getUserFromId(privateUser.id)
-          .then((user) => {
-            if (!user) return;
-            const friend = { ...user, color: getRandomColor() };
-            dispatch(addFriend(friend));
-          })
-          .catch((err) => {
-            console.error(`Xiao hong shu Error occurred getting user from id:  ${err}`);
-            console.log(JSON.stringify(data));
-          });
-      } else {
-        handleMessage(type, data, dispatch);
-      }
+      if (!socketRef.current) return;
+      handleMessage(type, data, socketRef.current, dispatch);
     });
 
     return () => {

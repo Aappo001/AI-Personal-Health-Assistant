@@ -1,11 +1,24 @@
 import { useParams } from "react-router-dom";
+import useMessageStore from "../store/hooks/useMessageStore";
+import { useUserMapContext } from "./UserMapContext";
 
 export default function ChatMessagePage() {
-  const { id } = useParams();
+  const userMap = useUserMapContext();
+  const messageStore = useMessageStore();
+  let { id } = useParams();
+  if (!id) {
+    window.location.href = "/chat";
+    return;
+  }
+
   return (
     <div className="flex flex-col justify-between items-center w-screen h-screen py-32">
-      {/* <h1 className="text-6xl text-offwhite">DM with {friend}</h1> */}
       <h1 className="text-6xl text-offwhite">Conversation {id}</h1>
+      {messageStore[parseInt(id)]?.map((message) => (
+        <p className="text-xl text-offwhite">
+          From {userMap[message.userId]}: {message.content}
+        </p>
+      ))}
       <div className="bg-[#363131] w-1/2 focus:outline-none rounded-full text-offwhite flex justify-between">
         <input
           type="text"
