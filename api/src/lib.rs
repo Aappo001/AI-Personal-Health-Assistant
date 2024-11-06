@@ -13,6 +13,8 @@ pub mod users;
 pub mod utils;
 /// Contains logic for processing user forms saving them to the database as statistics.
 pub mod forms;
+/// Contains logic for uploading files to the server.
+pub mod upload;
 use std::{
     fmt::Debug,
     net::SocketAddr,
@@ -48,6 +50,7 @@ use sqlx::{
 };
 use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
+use upload::upload_file;
 use users::{
     authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id,
     get_user_by_username, get_user_from_token, update_user,
@@ -214,6 +217,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/forms/health/:id", put(update_health_form))
         // Used to show a user all the health forms they have submitted
         .route("/forms", get(get_forms))
+        // Used to upload files to the server
+        .route("/upload", post(upload_file))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
         .layer(cors);
