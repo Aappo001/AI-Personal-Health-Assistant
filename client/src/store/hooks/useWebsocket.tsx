@@ -12,12 +12,23 @@ import {
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
 import { addFriend } from "../friendsSlice";
+import { pushMessage } from "../messageSlice";
+import { AppDispatch } from "../store";
 
-const handleMessage = (type: string, data: any) => {
+const handleMessage = (type: string, data: any, dispatch: AppDispatch) => {
   console.log("Received websocket response");
   switch (type) {
     case SocketResponse.Message:
       console.log(`Received message: ${data.message} from user ${data.userId}`);
+
+      console.log(JSON.stringify(data));
+      dispatch(
+        pushMessage({
+          id: data.conversationId,
+          message: { userId: data.userId, content: data.message },
+        })
+      );
+
       break;
     case SocketResponse.FriendRequest:
       console.log("Friend Request sent or received");
@@ -64,10 +75,13 @@ export default function useWebsocketSetup() {
     socketRef.current.addEventListener("message", (event: MessageEvent) => {
       const data = JSON.parse(event.data);
       const type = data.type;
+
       if (!type) {
         console.log("type field missing from JSON response");
         return;
       }
+
+      //if dispatch can work outside of component, this should be inside of handleMessage()
       if (type == SocketResponse.FriendData) {
         const privateUser = requestFriendsSchema.parse(data);
         getUserFromId(privateUser.id)
@@ -80,7 +94,7 @@ export default function useWebsocketSetup() {
             console.log(JSON.stringify(data));
           });
       } else {
-        handleMessage(type, data);
+        handleMessage(type, data, dispatch);
       }
     });
 
@@ -91,7 +105,7 @@ export default function useWebsocketSetup() {
   }, []);
 
   return {
-    handleSendMessage: (message: string, conversationId: number) => {
+    handleSendMessage: (message: string, conversationId: number, userId: number) => {
       if (!socketRef.current) {
         console.error(`Tried to send message ${message} while WS is null`);
         return;
@@ -102,6 +116,9 @@ export default function useWebsocketSetup() {
           message: message,
           conversationId: conversationId,
         })
+      );
+      dispatch(
+        pushMessage({ id: conversationId, message: { userId: userId, content: message } })
       );
     },
 

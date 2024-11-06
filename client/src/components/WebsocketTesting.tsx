@@ -19,7 +19,9 @@ export default function WebsocketTesting() {
   const [inviteUser, setInviteUser] = useState("");
   const [convoId, setConvoId] = useState(0);
   const [message, setMessage] = useState("");
-  const friends = useSelector((state: Rootstate) => state.friends.friends);
+  const friends = useSelector((state: Rootstate) => state.friendsState.friends);
+  const messages = useSelector((state: Rootstate) => state.messageState);
+  const userId = useSelector((state: Rootstate) => state.user.id);
 
   return (
     <>
@@ -99,7 +101,7 @@ export default function WebsocketTesting() {
 
           <button
             onClick={() => {
-              handleSendMessage(message, convoId);
+              handleSendMessage(message, convoId, userId);
             }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
@@ -113,6 +115,9 @@ export default function WebsocketTesting() {
           >
             Request Friends
           </button>
+          {messages.messages && (
+            <h1 className="text-3xl text-lilac">{JSON.stringify(messages.messages)}</h1>
+          )}
         </div>
       </Background>
     </>

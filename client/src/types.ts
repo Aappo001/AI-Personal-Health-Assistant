@@ -43,3 +43,8 @@ export type ServerAppError = {
     message: string,
     type: string
 }
+
+export type Message = {
+    userId: number,
+    content: string,
+}

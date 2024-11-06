@@ -19,7 +19,7 @@ export default function ChatSidebar({
   const handleClick = (index: number) => {
     if (index === activeConvo) {
       setActiveConvo(-1);
-      navigate("/chat");
+      navigate("/chat", { replace: true });
     } else {
       setActiveConvo(index);
       navigate(`/chat/messages/${friends[index]}`);
