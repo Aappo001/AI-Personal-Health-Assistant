@@ -1,13 +1,11 @@
-use std::path::PathBuf;
+use std::{fs::create_dir, io::ErrorKind, path::PathBuf};
 
-use anyhow::anyhow;
 use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
-use mime::Mime;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -90,29 +88,36 @@ pub async fn upload_file(
     }
 
     // Calculate the hash of the file to use as the filename
-    let hash = Sha1::digest(&upload_file.data).to_vec();
+    let hash = Sha1::digest(&upload_file.data);
 
-    let file_name = format!(
-        "{}.{}",
-        hash.iter().map(|&x| x as char).collect::<String>(),
-        upload_file.mime.extension()
-    );
-    let path = PathBuf::from(format!(
-        "./uploads/{}",
-        file_name
-    ));
+    let file_name = format!("{:x}.{}", hash, upload_file.mime.extension());
+    match create_dir("./uploads") {
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
+        Err(e) => return Err(e.into()),
+        _ => (),
+    }
+    let path = PathBuf::from(format!("./uploads/{}", file_name));
 
     if !path.exists() {
         let mut file = File::create(&path).await?;
         file.write_all(&upload_file.data).await?;
-        let response_data = sqlx::query_as!(UploadedFile, "INSERT INTO files (name, path) VALUES (?, ?) RETURNING *", upload_data.file_name, file_name)
-            .fetch_one(&state)
-            .await?;
+        let response_data = sqlx::query_as!(
+            UploadedFile,
+            "INSERT INTO files (name, path) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING *",
+            upload_data.file_name,
+            file_name
+        )
+        .fetch_one(&state)
+        .await?;
         Ok((StatusCode::CREATED, AppJson(response_data)).into_response())
     } else {
-        let response_data = sqlx::query_as!(UploadedFile, "SELECT * FROM files WHERE path = ?", file_name)
-            .fetch_one(&state)
-            .await?;
+        let response_data = sqlx::query_as!(
+            UploadedFile,
+            "SELECT * FROM files WHERE path = ?",
+            file_name
+        )
+        .fetch_one(&state)
+        .await?;
         Ok((StatusCode::OK, AppJson(response_data)).into_response())
     }
 }
