@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { RegisterBody } from "../types";
 import Background from "./Background";
 import axios from "axios";
@@ -15,27 +15,29 @@ export default function Register() {
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
+  const debounceCheck = useCallback(debounce(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if ((event.target.name === "username" || event.target.name === "email") && event.target.value) {
+      try {
+        const response = await axios.get(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
+
+        if (response.status !== 200) {
+          let error = response.data;
+          setResponseMessage(error.message);
+          setError(true);
+        } else {
+          setResponseMessage(`Valid ${event.target.name}`);
+          setError(false);
+        }
+      } catch (error) {
+        setResponseMessage("An error occurred. Please try again later.");
+        setError(true);
+      }
+    }
+  }, 700), []);
+
   const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     setUser({ ...user, [event.target.name]: event.target.value });
-    debounce(async (event: React.ChangeEvent<HTMLInputElement>) => {
-      if ((event.target.name === "username" || event.target.name === "email") && event.target.value) {
-        try {
-          const response = await axios.get(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
-
-          if (response.status !== 200) {
-            let error = response.data;
-            setResponseMessage(error.message);
-            setError(true);
-          } else {
-            setResponseMessage(`Valid ${event.target.name}`);
-            setError(false);
-          }
-        } catch (error) {
-          setResponseMessage("An error occurred. Please try again later.");
-          setError(true);
-        }
-      }
-    }, 700)(event)
+    debounceCheck(event)
   };
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
