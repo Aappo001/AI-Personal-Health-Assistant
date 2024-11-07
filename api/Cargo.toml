@@ -47,7 +47,7 @@ sonic-rs = "0.3.14"
 sqlx = { version = "0.8.2", features = ["runtime-tokio", "macros", "sqlite", "chrono", "json"] }
 tokio = { version = "1.40.0", features = ["full", "tracing"] }
 tokio-tungstenite = "0.24.0"
-tower-http = { version = "0.6.1", features = ["trace", "fs", "cors"] }
+tower-http = { version = "0.6.1", features = ["trace", "fs", "cors", "compression-br", "compression-gzip", "compression-zstd"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 validator = { version = "0.18.1", features = ["derive"] }

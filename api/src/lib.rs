@@ -6,15 +6,15 @@ pub mod chat;
 pub mod cli;
 /// Contains the error type and error handling logic for the application.
 pub mod error;
+/// Contains logic for processing user forms saving them to the database as statistics.
+pub mod forms;
+/// Contains logic for uploading files to the server.
+pub mod upload;
 /// Contains the logic for the users side of the application. Including the routes for creating a
 /// user, authenticating a user, and getting a user's profile.
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
-/// Contains logic for processing user forms saving them to the database as statistics.
-pub mod forms;
-/// Contains logic for uploading files to the server.
-pub mod upload;
 use std::{
     fmt::Debug,
     net::SocketAddr,
@@ -33,9 +33,7 @@ use axum::{
 use forms::{get_forms, get_health_form, save_health_form, update_health_form};
 use reqwest::{header, Client};
 use tower_http::{
-    cors::{self, AllowOrigin, CorsLayer},
-    services::{ServeDir, ServeFile},
-    trace::TraceLayer,
+    compression::CompressionLayer, cors::{self, AllowOrigin, CorsLayer}, services::{ServeDir, ServeFile}, trace::TraceLayer
 };
 
 use chat::{
@@ -82,7 +80,7 @@ pub struct AppState {
     /// without having to create a new connection for each request.
     pool: SqlitePool,
     /// Stemmer for stemming all messages sent
-    stemmer: Arc<Stemmer>, 
+    stemmer: Arc<Stemmer>,
     // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
     // that the AI is currently generating messages for.
 }
@@ -233,6 +231,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
         .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
         .with_state(AppState::new(pool.clone()));
 
     let tcp_listener = TcpListener::bind(format!("0.0.0.0:{}", args.port)).await?;
@@ -241,7 +240,14 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         tcp_listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(async {
+        // Wait for the CTRL+C signal
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install CTRL+C signal handler");
+    })
     .await?;
+    pool.close().await;
     Ok(())
 }
 
