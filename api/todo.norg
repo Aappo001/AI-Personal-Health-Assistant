@@ -3,6 +3,8 @@
   -- ( ) AI model querying
   --- ( ) Requerying AI model (maybe via an empty user message?)
   ---- Should the message be trimmed to prevent accidental whitespace only messages instead of potential queries?
+  --- ( ) Image processing on messages with images attached
+  ---- ( ) Support for vision models (like image recognition)
   --- (x) Support for group chat queries (prepend each user's message with {user}:)
   --- (x) Streaming model responses to client
   -- (x) User model selection (allow multiple models selectable by user)
@@ -14,8 +16,10 @@
   - ( ) Figure out how to handle user data deletion
   - (x) Integrate message searching
   -- (x) Sorting search results
+  -- ( ) Add custom search filters (date range, user, etc.)
   - ( ) Store user settings
-  - ( ) Expand conversation functionality
+  - ( ) Add online indicator for users
+  - ( ) Expand conversation functionality (optional/if i don't have anything else to do)
   -- ( ) Conversation ownership
   -- ( ) Leaving conversation
   -- ( ) Deleting conversation
