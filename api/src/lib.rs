@@ -21,6 +21,7 @@ use std::{
     ops::Deref,
     str::FromStr,
     sync::{atomic::AtomicI64, Arc},
+    time::Duration
 };
 
 use anyhow::Result;
@@ -32,8 +33,9 @@ use axum::{
 };
 use forms::{get_forms, get_health_form, save_health_form, update_health_form};
 use reqwest::{header, Client};
+use tower::ServiceBuilder;
 use tower_http::{
-    compression::CompressionLayer, cors::{self, AllowOrigin, CorsLayer}, services::{ServeDir, ServeFile}, trace::TraceLayer
+    compression::CompressionLayer, cors::{self, AllowOrigin, CorsLayer}, services::{ServeDir, ServeFile}, timeout::TimeoutLayer, trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer}, LatencyUnit, ServiceBuilderExt
 };
 
 use chat::{
@@ -190,6 +192,28 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         ])
         .expose_headers([HeaderName::from_static("authorization")]);
 
+    let sensitive_headers: Arc<[_]> = [header::AUTHORIZATION, header::COOKIE].into();
+       
+    let middleware = ServiceBuilder::new()
+        // Mark the `Authorization` and `Cookie` headers as sensitive so it doesn't show in logs
+        .sensitive_request_headers(sensitive_headers.clone())
+        // Add high level tracing/logging to all requests
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().include_headers(true))
+                .on_response(DefaultOnResponse::new().include_headers(true).latency_unit(LatencyUnit::Micros)),
+        )
+        .sensitive_response_headers(sensitive_headers)
+        // Set a timeout
+        .layer(TimeoutLayer::new(Duration::from_secs(15)))
+        // Compress responses
+        .compression()
+        // Set a `Content-Type` if there isn't one already.
+        .insert_response_header_if_not_present(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+
     let api = Router::new()
         .route("/register", post(create_user))
         // Logins users in based on the JSON data in the response body
@@ -221,6 +245,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .nest_service("/upload/", ServeDir::new("uploads"))
         // .route("/chat/query_model/*model_name", get(query_model))
         .route("/ws", get(connect_conversation))
+        // Add CORS headers to all responses
         .layer(cors);
 
     let app = Router::new()
@@ -230,8 +255,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         )
         // Add the trace layer to log all incoming requests
         // This logs the request method, path, response status, and response time
-        .layer(TraceLayer::new_for_http())
-        .layer(CompressionLayer::new())
+        .layer(middleware)
         .with_state(AppState::new(pool.clone()));
 
     let tcp_listener = TcpListener::bind(format!("0.0.0.0:{}", args.port)).await?;
