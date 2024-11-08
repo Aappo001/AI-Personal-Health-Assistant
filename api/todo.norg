@@ -8,15 +8,15 @@
   --- (x) Support for group chat queries (prepend each user's message with {user}:)
   --- (x) Streaming model responses to client
   -- (x) User model selection (allow multiple models selectable by user)
-  - ( ) Integrate Statistics Tracking
-  -- ( ) Add a form that users can fill out daily to collect statistics over time and view trends
+  - (x) Integrate Statistics Tracking
+  -- (x) Add a form that users can fill out daily to collect statistics over time and view trends
   --- (x) Forms can include Height, Weight, Mood, Sleep, Exercise, Food, etc.
-  --- ( ) If a user filled out a form in the past 24 hours, it will automatically be provided to the AI model for analysis so that the user can get more detailed feedback
+  --- (x) If a user filled out a form in the past 24 hours, it will automatically be provided to the AI model for analysis so that the user can get more detailed feedback
   - (x) Add editing account information (changing password, email, etc.)
   - ( ) Figure out how to handle user data deletion
   - (x) Integrate message searching
   -- (x) Sorting search results
-  -- ( ) Add custom search filters (date range, user, etc.)
+  -- (x) Add custom search filters (date range, user, etc.)
   - ( ) Store user settings
   - ( ) Add online indicator for users
   - ( ) Expand conversation functionality (optional/if i don't have anything else to do)

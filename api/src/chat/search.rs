@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use futures::StreamExt;
 use serde::Deserialize;
 use sqlx::{QueryBuilder, Sqlite};
@@ -13,6 +14,8 @@ pub struct SearchMessage {
     query: String,
     #[serde(default = "Default::default")]
     order: SearchOrder,
+    #[serde(default = "Box::default")]
+    filters: Box<[Filter]>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -28,7 +31,17 @@ impl Default for SearchOrder {
     }
 }
 
-// Note: This query can return duplicate rows because of the rank column being included. 
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type", content = "value")]
+pub enum Filter {
+    Before(NaiveDate),
+    After(NaiveDate),
+    During(NaiveDate),
+    User(Option<i64>),
+    AiModel(Option<i64>),
+}
+
+// Note: This query can return duplicate rows because of the rank column being included.
 // The rank column is used to determine the relevance of the search results and will be
 // different depending on whether the search query matched the message or the stemmed message.
 // The rank column must be included in order to rank the results by relevance, otherwise
@@ -57,7 +70,6 @@ pub async fn search_message(
     search_message: &SearchMessage,
     sender: &broadcast::Sender<SocketResponse>,
 ) -> Result<(), AppError> {
-
     let search_query = search_message.query.to_lowercase();
     let search_query = search_query.trim();
     if search_query.is_empty() {
@@ -105,6 +117,39 @@ pub async fn search_message(
             }
         }
         builder.push(r#", 5)'"#);
+
+        for filter in &search_message.filters {
+            builder.push(" AND ");
+            match filter {
+                Filter::Before(date) => {
+                    builder.push("messages.created_at < ?");
+                    builder.push_bind(date);
+                }
+                Filter::After(date) => {
+                    builder.push("messages.created_at > ?");
+                    builder.push_bind(date);
+                }
+                Filter::During(date) => {
+                    builder.push("messages.created_at >= ? AND messages.created_at < ?");
+                    builder.push_bind(date);
+                    builder.push_bind(*date + chrono::Duration::days(1));
+                }
+                Filter::User(Some(user_id)) => {
+                    builder.push("user_id = ?");
+                    builder.push_bind(user_id);
+                }
+                Filter::User(None) => {
+                    builder.push("ai_model_id IS NULL");
+                }
+                Filter::AiModel(Some(model_id)) => {
+                    builder.push("ai_model_id = ?");
+                    builder.push_bind(model_id);
+                }
+                Filter::AiModel(None) => {
+                    builder.push("user_id IS NULL");
+                }
+            }
+        }
         if i == 0 {
             builder.push(" UNION ");
         }
