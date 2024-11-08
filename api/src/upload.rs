@@ -77,7 +77,7 @@ pub async fn upload_file(
     // Check if the file size is too large
     if upload_file.data.len() > 10_000_000 {
         return Err(AppError::UserError((
-            StatusCode::BAD_REQUEST,
+            StatusCode::PAYLOAD_TOO_LARGE,
             "File size too large".into(),
         )));
     }

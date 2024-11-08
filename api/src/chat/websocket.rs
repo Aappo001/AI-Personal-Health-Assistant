@@ -843,7 +843,7 @@ async fn handle_message(
                             // Which ever one comes first will be returned and the other will
                             // be aborted
                             tokio::select! {
-                                ai_message = query_model(state, &send_message) => {
+                                ai_message = query_model(state, &send_message, &user) => {
                                     let ai_message = ai_message?;
                                     let stemmed_message = state.stemmer.stem_message(&ai_message);
                                     // Save the AI model's response to the database
