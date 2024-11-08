@@ -8,7 +8,7 @@ use base64::{engine::general_purpose, Engine};
 use macros::response;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use sha1::{Digest, Sha1};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use tokio::{fs::File, io::AsyncWriteExt};
 
@@ -83,7 +83,7 @@ pub async fn upload_file(
     }
 
     // Calculate the hash of the file to use as the filename
-    let hash = Sha1::digest(&upload_file.data);
+    let hash = Sha256::digest(&upload_file.data);
 
     let file_name = format!("{:x}.{}", hash, upload_file.mime.extension());
     match create_dir("./uploads") {
