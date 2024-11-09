@@ -27,11 +27,17 @@ const friendsSlice = createSlice({
         state.friends[index] = action.payload;
       }
     },
+    upgradeFriendStatus: (state, action: PayloadAction<number>) => {
+      const index = state.friends.findIndex((friend) => friend.id === action.payload);
+      if (index !== -1) {
+        state.friends[index] = {...state.friends[index], status: "Accepted"};
+      }
+    },
     setFriends: (state, action: PayloadAction<Friend[]>) => {
       state.friends = action.payload;
     },
   },
 });
 
-export const { addFriend, removeFriend, updateFriend, setFriends } = friendsSlice.actions;
+export const { addFriend, removeFriend, updateFriend, setFriends, upgradeFriendStatus } = friendsSlice.actions;
 export default friendsSlice.reducer;

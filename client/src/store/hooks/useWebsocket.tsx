@@ -17,7 +17,7 @@ import {
 } from "../../utils/ws-utils";
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
-import { addFriend } from "../friendsSlice";
+import { addFriend, upgradeFriendStatus } from "../friendsSlice";
 import { initializeConversationId, pushMessage } from "../messageSlice";
 import { AppDispatch, Rootstate } from "../store";
 import { Friend } from "../../types";
@@ -124,10 +124,17 @@ export default function useWebsocketSetup() {
           break;
         // {"type":"FriendRequest","sender_id":1,"receiver_id":2,"created_at":"2024-10-26T04:00:40","status":"Pending"}
         case SocketResponse.FriendRequest:
-          console.log("Friend Request sent or received");
-          console.log(JSON.stringify(data));
+          console.log("SocketResponse: FriendRequest");
           const userIsSender = data.sender_id === userId;
           let id = userIsSender ? data.receiver_id : data.sender_id;
+
+          if (data.status === "Accepted") {
+            console.log("Friend Request accepted");
+            dispatch(upgradeFriendStatus(id));
+            return;
+          }
+          console.log(`Friend Request status: ${data.status}`);
+
           getUserFromId(id).then((user) => {
             if (!user) return;
             const friend: Friend = {

@@ -67,8 +67,8 @@ export default function FriendsPage() {
           </button>
         </form>
         <div className="flex flex-col justify-center items-center gap-4 w-1/6 mt-4">
-          {friendStore.map((friend) => (
-            <FriendBox friend={friend} />
+          {friendStore.map((friend, i) => (
+            <FriendBox friend={friend} key={`${friend.username}-${i}`} />
           ))}
         </div>
       </div>

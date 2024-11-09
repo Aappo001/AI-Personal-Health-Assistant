@@ -39,7 +39,11 @@ const router = createBrowserRouter([
   },
   {
     path: "/chat",
-    element: <Chat />,
+    element: (
+      <ProtectedRoute>
+        <Chat />
+      </ProtectedRoute>
+    ),
     errorElement: <PageNotFound />,
     children: [
       {
