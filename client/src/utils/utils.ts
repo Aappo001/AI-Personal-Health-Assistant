@@ -106,14 +106,6 @@ const mainColors = [
   "bg-shock-pink",
 ];
 
-export const generateRandomColorArray = (length: number): string[] => {
-  const convoColors: string[] = [];
-  for (let i = 0; i < length; i++) {
-    convoColors.push(mainColors[Math.floor(Math.random() * mainColors.length)]);
-  }
-  return convoColors;
-};
-
 export const getRandomColor = () => {
   return mainColors[Math.floor(Math.random() * mainColors.length)]
 }

@@ -9,7 +9,6 @@ export default function WebsocketTesting() {
     handleSendMessage,
     sendFriendRequest,
     requestConversations,
-    inviteUsers,
     requestConversation,
     requestMessages,
     requestFriends,
@@ -59,12 +58,12 @@ export default function WebsocketTesting() {
             Request Conversations
           </button>
           <button
-            onClick={() => {
-              inviteUsers([inviteUser]);
-            }}
+            // onClick={() => {
+            //   inviteUsers([inviteUser]);
+            // }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
-            Invite {inviteUser ? inviteUser : "???"} to conversation
+            DEPRECATED: Invite {inviteUser ? inviteUser : "???"} to conversation
           </button>
           <input
             type="text"

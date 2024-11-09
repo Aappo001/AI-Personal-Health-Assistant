@@ -1,7 +1,6 @@
 import { Outlet } from "react-router-dom";
 import Background from "./Background";
 import ChatSidebar from "./ChatSidebar";
-import { generateRandomColorArray } from "../utils/utils";
 import useWebsocketSetup from "../store/hooks/useWebsocket";
 import { createContext } from "react";
 import useUserStore from "../store/hooks/useUserStore";
