@@ -7,7 +7,7 @@ use axum::{
 };
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::{FromRow, Type}, Decode, SqlitePool};
+use sqlx::{prelude::FromRow, SqlitePool};
 
 use crate::{
     auth::JwtAuth,

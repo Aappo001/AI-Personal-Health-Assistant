@@ -21,7 +21,7 @@ use std::{
     ops::Deref,
     str::FromStr,
     sync::{atomic::AtomicI64, Arc},
-    time::Duration
+    time::Duration,
 };
 
 use anyhow::Result;
@@ -35,7 +35,11 @@ use forms::{get_forms, get_health_form, save_health_form, update_health_form};
 use reqwest::{header, Client};
 use tower::ServiceBuilder;
 use tower_http::{
-    compression::CompressionLayer, cors::{self, AllowOrigin, CorsLayer}, services::{ServeDir, ServeFile}, timeout::TimeoutLayer, trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer}, LatencyUnit, ServiceBuilderExt
+    cors::{self, AllowOrigin, CorsLayer},
+    services::{ServeDir, ServeFile},
+    timeout::TimeoutLayer,
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+    LatencyUnit, ServiceBuilderExt,
 };
 
 use chat::{
@@ -193,7 +197,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .expose_headers([HeaderName::from_static("authorization")]);
 
     let sensitive_headers: Arc<[_]> = [header::AUTHORIZATION, header::COOKIE].into();
-       
+
     let middleware = ServiceBuilder::new()
         // Mark the `Authorization` and `Cookie` headers as sensitive so it doesn't show in logs
         .sensitive_request_headers(sensitive_headers.clone())
@@ -201,7 +205,11 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().include_headers(true))
-                .on_response(DefaultOnResponse::new().include_headers(true).latency_unit(LatencyUnit::Micros)),
+                .on_response(
+                    DefaultOnResponse::new()
+                        .include_headers(true)
+                        .latency_unit(LatencyUnit::Micros),
+                ),
         )
         .sensitive_response_headers(sensitive_headers)
         // Set a timeout

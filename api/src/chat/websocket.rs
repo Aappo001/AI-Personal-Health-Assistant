@@ -19,7 +19,7 @@ use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::{Sqlite, SqlitePool};
+use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
@@ -850,16 +850,16 @@ async fn handle_message(
                                     // This is done outside of the `query_model` function to
                                     // prevent the message from being lost if the user cancels
                                     // the AI generation while writing to the database
-                                    let message = sqlx::query_as::<Sqlite, ChatMessage>(
-                                        "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING *"
+                                    let message = sqlx::query!(
+                                        "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING id",
+                                        send_message.conversation_id,
+                                        ai_message,
+                                        stemmed_message,
+                                        ai_model_id
                                     )
-                                        .bind(send_message.conversation_id)
-                                        .bind(ai_message)
-                                        .bind(stemmed_message)
-                                        .bind(ai_model_id)
                                         .fetch_one(&state.pool)
-                                        .await?;
-                                    Ok(message)
+                                        .await?.id;
+                                    Ok(get_chat_message(&state.pool, message).await?)
                                 }
                                 _ = async {
                                     // Subscribe to the broadcast channel to listen for the
@@ -1121,10 +1121,7 @@ async fn send_message(
 }
 
 /// Utility function to easily extract a chat message from the database
-async fn get_chat_message(
-    pool: &SqlitePool,
-    message_id: i64,
-) -> Result<ChatMessage, AppError> {
+async fn get_chat_message(pool: &SqlitePool, message_id: i64) -> Result<ChatMessage, AppError> {
     Ok(sqlx::query_as!(
         ChatMessage,
         "SELECT messages.id, message, user_id, conversation_id, messages.created_at, ai_model_id, file_name, modified_at, files.path as file_path FROM messages LEFT JOIN files ON messages.id = files.id WHERE messages.id = ?",

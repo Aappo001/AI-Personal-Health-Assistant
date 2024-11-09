@@ -2,13 +2,13 @@ use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
-use chrono::Timelike;
 use dotenvy::var;
 use futures::StreamExt;
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
-use sonic_rs::{json, JsonValueMutTrait, JsonValueTrait};
+// use sonic_rs::{json, JsonValueTrait, JsonValueMutTrait};
+use serde_json::json;
 use sqlx::SqlitePool;
 use tracing::debug;
 
@@ -186,9 +186,12 @@ pub async fn query_model(
         )
         .json(&body)
         .send()
-        .await
-        .map_err(AppError::from)?
-        .json_array_stream::<sonic_rs::Value>(2048);
+        .await?
+        // Handle the response as a stream
+        // Using serde_json::Value instead of sonic_rs::Value because it breaks for some reason
+        // and gives a CodecError. I tried looking it up every where and even read through the
+        // source of both reqwest_streams and sonic_rs but I couldn't figure it out.
+        .json_array_stream::<serde_json::Value>(2048);
 
     // The accumulated response from the AI model
     let mut res_content = String::new();

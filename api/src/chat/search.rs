@@ -70,7 +70,7 @@ pub async fn search_message(
     search_message: &SearchMessage,
     sender: &broadcast::Sender<SocketResponse>,
 ) -> Result<(), AppError> {
-    let search_query = search_message.query.to_lowercase();
+    let search_query = search_message.query.replace("'", "\\'").to_lowercase();
     let search_query = search_query.trim();
     if search_query.is_empty() {
         return Ok(());

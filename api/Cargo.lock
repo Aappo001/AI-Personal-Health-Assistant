@@ -66,6 +66,7 @@ dependencies = [
  "rust-stemmers",
  "scc",
  "serde",
+ "serde_json",
  "sha2",
  "sonic-rs",
  "sqlx",
