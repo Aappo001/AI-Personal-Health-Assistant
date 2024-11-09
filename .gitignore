@@ -1,5 +1,11 @@
 target/
 node_modules/
+uploads/
+.vscode/
+
 
 .env
 *.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo

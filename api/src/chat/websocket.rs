@@ -30,7 +30,10 @@ use crate::{
     AppState, InnerSocket,
 };
 
-use super::{create_conversation, search::SearchMessage, ChatMessage, ReadEvent, StreamMessage};
+use super::{
+    create_conversation, search::SearchMessage, ChatMessage, DeleteMessage, ReadEvent,
+    StreamMessage,
+};
 
 // Initializing a websocket connection should look like the following in js
 // let ws = new WebSocket("ws://localhost:3000/api/ws", [
@@ -91,10 +94,7 @@ pub enum SocketResponse {
     /// Conversation to be sent to the client
     Conversation(Conversation),
     /// The i64 is the id of the message to delete
-    DeleteMessage {
-        message_id: i64,
-        conversation_id: i64,
-    },
+    DeleteMessage(DeleteMessage),
     /// Stream data from the AI model
     StreamData(StreamMessage),
     /// Invite to a conversation
@@ -215,6 +215,14 @@ pub struct SendMessage {
     /// The id of the model to query
     /// If this is none, the message will not be sent to the AI model
     pub ai_model_id: Option<i64>,
+    /// Any attachments to the message
+    pub attachment: Option<SendAttachment>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct SendAttachment {
+    pub id: i64,
+    pub name: String,
 }
 
 /// Edit a message in the conversation
@@ -395,8 +403,9 @@ async fn request_messages(
 
     let mut query = sqlx::query_as!(
         ChatMessage,
-        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
+        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id, file_name, files.path as file_path FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
+        LEFT JOIN files ON messages.id = files.id
         WHERE conversations.id = ? AND messages.id < ?
         ORDER BY last_message_at DESC
         LIMIT ?"#,
@@ -437,18 +446,46 @@ async fn save_message(
         return Err(anyhow!("User is not in the conversation").into());
     }
 
+    if let Some(attachment) = &message.attachment {
+        sqlx::query!(
+            "SELECT file_id FROM file_uploads WHERE file_id = ? and user_id = ?",
+            attachment.id,
+            user.id
+        )
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| anyhow!("Image not found"))?;
+    }
+
     let stemmed_message = state.stemmer.stem_message(&message.message);
 
-    Ok(sqlx::query_as!(
-        ChatMessage,
-        "INSERT INTO messages (user_id, conversation_id, message, stemmed_message) VALUES (?, ?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
-        user.id,
-        conversation_id,
-        message.message,
-        stemmed_message
-    )
-    .fetch_one(&state.pool)
-    .await?)
+    let message_id = match &message.attachment {
+        Some(attachment) => {
+            sqlx::query!(
+                "INSERT INTO messages (user_id, conversation_id, message, stemmed_message, file_id, file_name) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+                user.id,
+                conversation_id,
+                message.message,
+                stemmed_message,
+                attachment.id,
+                attachment.name,
+            )
+            .fetch_one(&state.pool)
+            .await?.id
+        },
+        None => {
+            sqlx::query!(
+                "INSERT INTO messages (user_id, conversation_id, message, stemmed_message) VALUES (?, ?, ?, ?) RETURNING id",
+                user.id,
+                conversation_id,
+                message.message,
+                stemmed_message
+            )
+            .fetch_one(&state.pool)
+            .await?.id
+        }
+    };
+    get_chat_message(&state.pool, message_id).await
 }
 
 /// Edit message in the database
@@ -474,15 +511,16 @@ async fn edit_message(
 
     // Update the message in the database
     // We know the message exists so we can just use `fetch_one`
-    Ok(sqlx::query_as!(
-        ChatMessage,
-        "UPDATE messages SET message = ?, stemmed_message = ? WHERE id = ? RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
+    sqlx::query!(
+        "UPDATE messages SET message = ?, stemmed_message = ? WHERE id = ?",
         message.message,
         stemmed_message,
         message.id
     )
-    .fetch_one(&state.pool)
-    .await?)
+    .execute(&state.pool)
+    .await?;
+
+    get_chat_message(&state.pool, message.id).await
 }
 
 /// Delete a message in the database
@@ -490,15 +528,11 @@ async fn delete_message(
     pool: &SqlitePool,
     message_id: i64,
     user: &UserToken,
-) -> Result<ChatMessage, AppError> {
+) -> Result<DeleteMessage, AppError> {
     // Check if the message exists in the database
-    let Some(message) = sqlx::query_as!(
-        ChatMessage,
-        "SELECT id, user_id, conversation_id, message, created_at, modified_at, ai_model_id FROM messages WHERE id = ?",
-        message_id
-    )
-    .fetch_optional(pool)
-    .await?
+    let Some(message) = sqlx::query!("SELECT id, user_id FROM messages WHERE id = ?", message_id)
+        .fetch_optional(pool)
+        .await?
     else {
         return Err(anyhow!("Message not found").into());
     };
@@ -508,8 +542,8 @@ async fn delete_message(
     }
     // Delete the message from the database
     Ok(sqlx::query_as!(
-        ChatMessage,
-        "DELETE FROM messages WHERE id = ? RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
+        DeleteMessage,
+        "DELETE FROM messages WHERE id = ? RETURNING id as message_id, conversation_id",
         message.id
     )
     .fetch_one(pool)
@@ -809,23 +843,23 @@ async fn handle_message(
                             // Which ever one comes first will be returned and the other will
                             // be aborted
                             tokio::select! {
-                                ai_message = query_model(state, &send_message) => {
+                                ai_message = query_model(state, &send_message, &user) => {
                                     let ai_message = ai_message?;
                                     let stemmed_message = state.stemmer.stem_message(&ai_message);
                                     // Save the AI model's response to the database
                                     // This is done outside of the `query_model` function to
                                     // prevent the message from being lost if the user cancels
                                     // the AI generation while writing to the database
-                                    Ok(sqlx::query_as!(
-                                        ChatMessage,
-                                        "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING id, user_id, conversation_id, message, created_at, modified_at, ai_model_id",
+                                    let message = sqlx::query!(
+                                        "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING id",
                                         send_message.conversation_id,
                                         ai_message,
                                         stemmed_message,
                                         ai_model_id
                                     )
-                                    .fetch_one(&state.pool)
-                                    .await?)
+                                        .fetch_one(&state.pool)
+                                        .await?.id;
+                                    Ok(get_chat_message(&state.pool, message).await?)
                                 }
                                 _ = async {
                                     // Subscribe to the broadcast channel to listen for the
@@ -875,14 +909,7 @@ async fn handle_message(
                 SocketRequest::DeleteMessage { message_id } => {
                     let deleted_message = delete_message(&state.pool, message_id, user).await?;
                     // Broadcast the deleted message to all the users in the conversation
-                    broadcast_event(
-                        state,
-                        SocketResponse::DeleteMessage {
-                            message_id: deleted_message.id,
-                            conversation_id: deleted_message.conversation_id,
-                        },
-                    )
-                    .await?;
+                    broadcast_event(state, SocketResponse::DeleteMessage(deleted_message)).await?;
                 }
                 SocketRequest::InviteUsers {
                     invitees,
@@ -1039,9 +1066,7 @@ async fn handle_message(
 pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<(), AppError> {
     let id = match &msg {
         SocketResponse::Message(chat_msg) => chat_msg.conversation_id,
-        SocketResponse::DeleteMessage {
-            conversation_id, ..
-        } => *conversation_id,
+        SocketResponse::DeleteMessage(delete_msg) => delete_msg.conversation_id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
         SocketResponse::Invite {
@@ -1093,4 +1118,15 @@ async fn send_message(
         }
     }
     Ok(true)
+}
+
+/// Utility function to easily extract a chat message from the database
+async fn get_chat_message(pool: &SqlitePool, message_id: i64) -> Result<ChatMessage, AppError> {
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "SELECT messages.id, message, user_id, conversation_id, messages.created_at, ai_model_id, file_name, modified_at, files.path as file_path FROM messages LEFT JOIN files ON messages.id = files.id WHERE messages.id = ?",
+        message_id
+    )
+    .fetch_one(pool)
+    .await?)
 }

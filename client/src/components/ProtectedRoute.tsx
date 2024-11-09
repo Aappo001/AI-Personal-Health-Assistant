@@ -1,10 +1,6 @@
 import useUserStore from "../store/hooks/useUserStore";
 import { Navigate, useLocation } from "react-router-dom";
-export default function ProtectedRoute({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const user = useUserStore();
   let location = useLocation();
 

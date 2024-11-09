@@ -23,4 +23,5 @@ export default function useImplicitLogin() {
 
     login();
   }, [userStore]);
+  return userStore.id !== -1;
 }

@@ -32,7 +32,21 @@ export type SessionUser = {
     username: string,
 }
 
+export type PublicUser = {
+    id: number,
+    username: string,
+    firstName: string,
+    lastName: string
+}
+
+export type Friend = PublicUser & {status: string, isSender?: boolean, color: string}
+
 export type ServerAppError = {
     message: string,
     type: string
+}
+
+export type Message = {
+    userId: number,
+    content: string,
 }

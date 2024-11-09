@@ -7,11 +7,16 @@ use futures::StreamExt;
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
-use sonic_rs::{json, JsonValueTrait, JsonValueMutTrait};
+// use sonic_rs::{json, JsonValueTrait, JsonValueMutTrait};
+use serde_json::json;
 use sqlx::SqlitePool;
 use tracing::debug;
 
-use crate::{error::{AppError, AppJson}, AppState};
+use crate::{
+    error::{AppError, AppJson},
+    users::UserToken,
+    AppState,
+};
 
 use super::{broadcast_event, SendMessage, SocketResponse};
 
@@ -36,7 +41,11 @@ pub struct AiModel {
 
 /// Query the AI model with the messages in the conversation
 /// Return's the ai's response
-pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<String, AppError> {
+pub async fn query_model(
+    state: &AppState,
+    message: &SendMessage,
+    user: &UserToken,
+) -> Result<String, AppError> {
     let model_id = message.ai_model_id.expect("Model ID should be provided");
     let conversation_id = message
         .conversation_id
@@ -107,6 +116,58 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
         "role": if last_user.is_some() { "user" } else { "assistant" },
         "content": cur_content
         }));
+
+        let form = sqlx::query!(
+            "SELECT height, weight, sleep_hours, exercise_duration, food_intake, notes, user_statistics.modified_at, users.username FROM user_statistics JOIN users ON users.id = user_statistics.user_id WHERE user_id = ? ORDER BY user_statistics.created_at DESC LIMIT 1",
+            user.id
+        )
+        .fetch_optional(&state.pool)
+        .await?;
+
+        if let Some(form) = form {
+            let time_diff = chrono::Utc::now().naive_utc() - form.modified_at;
+            let content = format!("{} filled out a health form {} that contains the following details: {}{}{}{}{}{}{}",
+                form.username,
+                match time_diff {
+                    _ if time_diff.num_weeks() > 0 => format!("{} weeks ago", time_diff.num_weeks()),
+                    _ if time_diff.num_days() > 0 => format!("{} days ago", time_diff.num_days()),
+                    _ if time_diff.num_hours() > 0 => format!("{} hours ago", time_diff.num_hours()),
+                    _ if time_diff.num_minutes() > 0 => format!("{} minutes ago", time_diff.num_minutes()),
+                    _ if time_diff.num_seconds() > 0 => format!("{} seconds ago", time_diff.num_minutes()),
+                    _ => "just now".to_string()
+                },
+                (chrono::Utc::now().naive_utc() - form.modified_at),
+                match form.height {
+                    Some(height) => format!("Height: {} cm\n", height),
+                    None => "".to_string()
+                },
+                match form.weight {
+                    Some(weight) => format!("Weight: {} kg\n", weight),
+                    None => "".to_string()
+                },
+                match form.sleep_hours {
+                    Some(sleep_hours) => format!("Sleep Hours: {} hours\n", sleep_hours),
+                    None => "".to_string()
+                },
+                match form.exercise_duration {
+                    Some(exercise_duration) => format!("Exercise Duration: {} minutes\n", exercise_duration),
+                    None => "".to_string()
+                },
+                match form.food_intake {
+                    Some(food_intake) => format!("Food Intake: {}\n", food_intake),
+                    None => "".to_string()
+                },
+                match form.notes {
+                    Some(notes) => format!("Notes: {}\n", notes),
+                    None => "".to_string()
+                }
+            );
+            req_messages.push(json!({
+                "role": "system",
+                "content": content
+            }));
+        }
+
         debug!("Querying AI model with: {:?}", req_messages);
     }
 
@@ -125,9 +186,12 @@ pub async fn query_model(state: &AppState, message: &SendMessage) -> Result<Stri
         )
         .json(&body)
         .send()
-        .await
-        .map_err(AppError::from)?
-        .json_array_stream::<sonic_rs::Value>(2048);
+        .await?
+        // Handle the response as a stream
+        // Using serde_json::Value instead of sonic_rs::Value because it breaks for some reason
+        // and gives a CodecError. I tried looking it up every where and even read through the
+        // source of both reqwest_streams and sonic_rs but I couldn't figure it out.
+        .json_array_stream::<serde_json::Value>(2048);
 
     // The accumulated response from the AI model
     let mut res_content = String::new();

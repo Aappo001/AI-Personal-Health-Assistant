@@ -127,12 +127,22 @@ pub struct ChatMessage {
     /// This will be none if the message was sent by the AI
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
     /// The id of the AI model that sent the message
     /// This will be none if the message was sent by a user
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_model_id: Option<i64>,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct DeleteMessage {
+    pub message_id: i64,
+    pub conversation_id: i64,
 }
 
 /// Get all the messages in a conversation
@@ -156,8 +166,9 @@ pub async fn get_conversation(
     }
     let res = &sqlx::query_as!(
             ChatMessage,
-            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id FROM messages
+            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id, file_name, files.path as file_path FROM messages
             JOIN conversations ON conversations.id = messages.conversation_id 
+            LEFT JOIN files ON files.id = messages.file_id
             WHERE conversations.id = ? 
             ORDER BY last_message_at DESC"#,
             conversation_id,
