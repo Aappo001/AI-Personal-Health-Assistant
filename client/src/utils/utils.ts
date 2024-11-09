@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from "axios";
-import { implicitLoginSchema } from "../schemas";
-import { RegisterBody, ServerResponse, ErrorResponse, SessionUser } from "../types";
+import { implicitLoginSchema, publicUserSchema } from "../schemas";
+import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
@@ -19,6 +19,11 @@ export async function RegisterUser(
     }
     return { errorMessage: "An error occurred. Please try again later." };
   }
+}
+
+export async function checkUsername(username: string): Promise<boolean>{
+  const response = await fetch(`http://localhost:3000/api/check/username/${username}`)
+  return response.status === 200
 }
 
 export function debounce<T extends unknown[]>(func: (...args: T) => void, delay: number):
@@ -59,6 +64,40 @@ export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
   }
 };
 
+export const getUserIdFromUsername = async (username: string): Promise<number | undefined> => {
+  const response = await fetch(`http://localhost:3000/api/users/username/${username}`);
+
+  if (!response.ok) {
+    console.log("Error getting user id from username");
+    return;
+  }
+
+  const parsedUser = publicUserSchema.safeParse(await response.json());
+  if (!parsedUser.success || parsedUser.error) {
+    console.log("Error sending friend request: Bad JSON received from server");
+    return;
+  }
+
+  return parsedUser.data.id
+}
+
+export const getUserFromId = async (id: number): Promise<PublicUser | undefined> => {
+  const response = await fetch(`http://localhost:3000/api/users/id/${id}`)
+  if(!response.ok) {
+    console.error("Error getting user from id");
+    return
+  }
+  
+  const user = publicUserSchema.safeParse(await response.json())
+
+  if(!user.success) {
+    console.log(`Error parsing JSON: ${user.error}`);
+    return
+  }
+  
+  return user.data
+}
+
 const mainColors = [
   "bg-main-green",
   "bg-orangey",
@@ -74,6 +113,10 @@ export const generateRandomColorArray = (length: number): string[] => {
   }
   return convoColors;
 };
+
+export const getRandomColor = () => {
+  return mainColors[Math.floor(Math.random() * mainColors.length)]
+}
 
 export const getJwtFromResponseHeader = (response: AxiosResponse) => {
   const token = response.headers['authorization']?.split(" ")[1]
