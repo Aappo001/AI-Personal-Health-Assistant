@@ -17,7 +17,7 @@ import {
 } from "../../utils/ws-utils";
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
-import { addFriend, upgradeFriendStatus } from "../friendsSlice";
+import { addFriend, removeFriend, upgradeFriendStatus } from "../friendsSlice";
 import { initializeConversationId, pushMessage } from "../messageSlice";
 import { AppDispatch, Rootstate } from "../store";
 import { Friend } from "../../types";
@@ -131,6 +131,10 @@ export default function useWebsocketSetup() {
           if (data.status === "Accepted") {
             console.log("Friend Request accepted");
             dispatch(upgradeFriendStatus(id));
+            return;
+          } else if (data.status === "Rejected") {
+            console.log("Friend request rejected");
+            dispatch(removeFriend(id));
             return;
           }
           console.log(`Friend Request status: ${data.status}`);
