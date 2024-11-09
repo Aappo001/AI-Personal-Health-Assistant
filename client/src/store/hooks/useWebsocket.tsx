@@ -19,66 +19,9 @@ import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
 import { addFriend, removeFriend, upgradeFriendStatus } from "../friendsSlice";
 import { initializeConversationId, pushMessage } from "../messageSlice";
-import { AppDispatch, Rootstate } from "../store";
+import { Rootstate } from "../store";
 import { Friend } from "../../types";
 import { useSelector } from "react-redux";
-
-//TODO: Move this function logic into the component bc this is disgusting
-const handleMessage = (type: string, data: any, ws: WebSocket, dispatch: AppDispatch) => {
-  console.log("Received websocket response");
-  switch (type) {
-    case SocketResponse.Message:
-      console.log(`Received message: ${data.message} from user ${data.userId}`);
-      dispatch(
-        pushMessage({
-          id: data.conversationId,
-          message: { userId: data.userId, content: data.message },
-        })
-      );
-      break;
-    // {"type":"FriendRequest","sender_id":1,"receiver_id":2,"created_at":"2024-10-26T04:00:40","status":"Pending"}
-    case SocketResponse.FriendRequest:
-      console.log("Friend Request sent or received");
-      console.log(JSON.stringify(data));
-      getUserFromId(data.sender_id).then((user) => {
-        if (!user) return;
-        const friend: Friend = { ...user, status: data.status, color: getRandomColor() };
-        dispatch(addFriend(friend));
-      });
-      break;
-    case SocketResponse.Generic:
-      console.log(`Received Generic Message: ${data.message}`);
-      break;
-    case SocketResponse.Invite:
-      console.log(`Received Invite Message from user id ${data.inviter}`);
-      break;
-    case SocketResponse.Conversation:
-      console.log(`User present in conversation with id ${data.id}`);
-      dispatch(initializeConversationId(data.id));
-      wsRequestMessages(ws, data.id);
-      break;
-    case SocketResponse.Error:
-      console.log(`SocketResponse Error: ${data.message}`);
-      break;
-    case SocketResponse.FriendData:
-      console.log(`Friends with user id ${data.id} at ${data.created_at}`);
-      const privateUser = requestFriendsSchema.parse(data);
-      getUserFromId(privateUser.id)
-        .then((user) => {
-          if (!user) return;
-          const friend = { ...user, status: "Accepted", color: getRandomColor() };
-          dispatch(addFriend(friend));
-        })
-        .catch((err) => {
-          console.error(`Xiao hong shu Error occurred getting user from id:  ${err}`);
-          console.log(JSON.stringify(data));
-        });
-      break;
-    default:
-      console.log(`Unknown SocketResponseType: ${type}`);
-      console.log(JSON.stringify(data));
-  }
-};
 
 export default function useWebsocketSetup() {
   const socketRef = useRef<WebSocket | null>(null);
@@ -109,7 +52,6 @@ export default function useWebsocketSetup() {
       }
 
       if (!socketRef.current) return;
-      // handleMessage(type, data, socketRef.current, dispatch);
 
       console.log("Received websocket response");
       switch (type) {
@@ -122,7 +64,7 @@ export default function useWebsocketSetup() {
             })
           );
           break;
-        // {"type":"FriendRequest","sender_id":1,"receiver_id":2,"created_at":"2024-10-26T04:00:40","status":"Pending"}
+
         case SocketResponse.FriendRequest:
           console.log("SocketResponse: FriendRequest");
           const userIsSender = data.sender_id === userId;
@@ -144,26 +86,32 @@ export default function useWebsocketSetup() {
             const friend: Friend = {
               ...user,
               status: data.status,
+              //looks weird but trust the process
               isSender: !userIsSender,
               color: getRandomColor(),
             };
             dispatch(addFriend(friend));
           });
           break;
+
         case SocketResponse.Generic:
           console.log(`Received Generic Message: ${data.message}`);
           break;
+
         case SocketResponse.Invite:
           console.log(`Received Invite Message from user id ${data.inviter}`);
           break;
+
         case SocketResponse.Conversation:
           console.log(`User present in conversation with id ${data.id}`);
           dispatch(initializeConversationId(data.id));
           wsRequestMessages(socketRef.current, data.id);
           break;
+
         case SocketResponse.Error:
           console.log(`SocketResponse Error: ${data.message}`);
           break;
+
         case SocketResponse.FriendData:
           console.log(`Friends with user id ${data.id} at ${data.created_at}`);
           const privateUser = requestFriendsSchema.parse(data);
@@ -178,6 +126,7 @@ export default function useWebsocketSetup() {
               console.log(JSON.stringify(data));
             });
           break;
+
         default:
           console.log(`Unknown SocketResponseType: ${type}`);
           console.log(JSON.stringify(data));

@@ -25,8 +25,6 @@ export default function ChatSidebar() {
       navigate("/chat/friends");
     } else {
       setActiveConvo(id);
-      // const friend = userMap[id];
-      // if (!friend) return;
       navigate(`/chat/messages/${id}`);
     }
   };
@@ -71,14 +69,6 @@ export default function ChatSidebar() {
             key={`convo-${conversationId}`}
           />
         ))}
-        {/* {friendStore &&
-          friendStore.map((friend) => (
-            <RecentConversation
-              friend={friend}
-              activeIndex={activeConvo}
-              onClick={handleClick}
-            />
-          ))} */}
       </div>
     </>
   );
