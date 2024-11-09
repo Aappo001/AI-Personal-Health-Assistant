@@ -1,9 +1,9 @@
-export const wsSendFriendRequest = (ws: WebSocket, friendId: number) => {
+export const wsSendFriendRequest = (ws: WebSocket, friendId: number, accept: boolean) => {
     ws.send(
         JSON.stringify({
           type: "SendFriendRequest",
           other_user_id: friendId,
-          accept: true,
+          accept: accept,
         })
       );
 }
@@ -47,6 +47,12 @@ export const wsRequestFriends = (ws: WebSocket) => {
     console.log("Requesting friends");
     ws.send(JSON.stringify({
         type: "RequestFriends"
+    }))
+}
+
+export const wsRequestFriendRequests = (ws: WebSocket) => {
+    ws.send(JSON.stringify({
+        type: "RequestFriendRequests"
     }))
 }
 

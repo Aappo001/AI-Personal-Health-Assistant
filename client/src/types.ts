@@ -39,7 +39,7 @@ export type PublicUser = {
     lastName: string
 }
 
-export type Friend = PublicUser & {color: string}
+export type Friend = PublicUser & {status: string, isSender?: boolean, color: string}
 
 export type ServerAppError = {
     message: string,

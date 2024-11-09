@@ -10,7 +10,11 @@ export default function FriendsPage() {
   const userMap = useUserMapContext();
   const [friend, setFriend] = useState("");
   const [response, setResponse] = useState("");
-  const { sendFriendRequest } = useContext(WebsocketContext);
+  const { sendFriendRequest, requestFriendRequests } = useContext(WebsocketContext);
+
+  useEffect(() => {
+    requestFriendRequests();
+  }, []);
 
   useEffect(() => {
     if (friend.trim() === "") {
@@ -44,7 +48,7 @@ export default function FriendsPage() {
           onSubmit={(e) => {
             e.preventDefault();
             setResponse("Friend request sent!");
-            sendFriendRequest(friend);
+            sendFriendRequest(friend, true);
           }}
           className="bg-[#363131] w-1/4 focus:outline-none rounded-full text-offwhite flex justify-between"
         >

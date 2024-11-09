@@ -13,6 +13,7 @@ export default function WebsocketTesting() {
     requestConversation,
     requestMessages,
     requestFriends,
+    requestFriendRequests,
     loading,
   } = useWebsocketSetup();
 
@@ -21,7 +22,6 @@ export default function WebsocketTesting() {
   const [message, setMessage] = useState("");
   const friends = useSelector((state: Rootstate) => state.friendsState.friends);
   const messages = useSelector((state: Rootstate) => state.messageState);
-  const userId = useSelector((state: Rootstate) => state.user.id);
 
   return (
     <>
@@ -36,7 +36,7 @@ export default function WebsocketTesting() {
           </h1>
           <button
             onClick={() => {
-              sendFriendRequest(inviteUser);
+              sendFriendRequest(inviteUser, true);
             }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
@@ -44,7 +44,7 @@ export default function WebsocketTesting() {
           </button>
           <button
             onClick={() => {
-              sendFriendRequest(inviteUser);
+              sendFriendRequest(inviteUser, true);
             }}
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
@@ -114,6 +114,14 @@ export default function WebsocketTesting() {
             className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
           >
             Request Friends
+          </button>
+          <button
+            onClick={() => {
+              requestFriendRequests();
+            }}
+            className="px-8 py-3 border-2 border-lilac font-bold rounded-full text-lilac transition-colors duration-200 hover:bg-lilac hover:text-black"
+          >
+            Request Friend Requests
           </button>
           {messages.messages &&
             Object.entries(messages.messages).map(([conversationId, content]) => (
