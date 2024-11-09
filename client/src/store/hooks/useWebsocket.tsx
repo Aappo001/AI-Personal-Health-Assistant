@@ -100,6 +100,9 @@ export default function useWebsocketSetup() {
 
         case SocketResponse.Invite:
           console.log(`Received Invite Message from user id ${data.inviter}`);
+          console.log(`Conversation Invite Data: ${JSON.stringify(data)}`);
+
+          dispatch(initializeConversationId(data.conversation_id));
           break;
 
         case SocketResponse.Conversation:
@@ -169,25 +172,10 @@ export default function useWebsocketSetup() {
       wsRequestConversations(socketRef.current);
     },
 
-    inviteUsers: (usernames: string[]) => {
+    // inviteUsers: (usernames: string[]) => {
+    inviteUsers: (friendIds: number[]) => {
       if (!socketRef.current) return;
-      console.log(`InviteUsers input: ${usernames}`);
-
-      // create an array of promises, so that the requests can run concurrently using Promise.all()
-      const getIdPromises: Promise<number | undefined>[] = [];
-      usernames.forEach((username) => getIdPromises.push(getUserIdFromUsername(username)));
-
-      // fetch all user ids, filter undefined results
-      let friendIds: number[] = [];
-      Promise.all(getIdPromises)
-        .then((ids) => {
-          friendIds = ids.filter((id) => id !== undefined);
-          //@ts-expect-error it thinks socketRef is null for some reason
-          wsInviteUsersToConvo(socketRef.current, friendIds);
-        })
-        .catch((err) => {
-          console.log(`Error getting ids from usernames: ${err}`);
-        });
+      wsInviteUsersToConvo(socketRef.current, friendIds);
     },
 
     requestConversation: (id: number) => {

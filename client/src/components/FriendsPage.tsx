@@ -10,7 +10,9 @@ export default function FriendsPage() {
   const userMap = useUserMapContext();
   const [friend, setFriend] = useState("");
   const [response, setResponse] = useState("");
-  const { sendFriendRequest, requestFriendRequests } = useContext(WebsocketContext);
+  const [selectedFriends, setSelectedFriends] = useState<number[]>([]);
+  const { sendFriendRequest, requestFriendRequests, inviteUsers } =
+    useContext(WebsocketContext);
 
   useEffect(() => {
     requestFriendRequests();
@@ -40,6 +42,10 @@ export default function FriendsPage() {
     };
   }, [friend]);
 
+  const createConversation = () => {
+    inviteUsers(selectedFriends);
+  };
+
   return (
     <>
       <div className="w-screen h-screen flex flex-col justify-center items-center">
@@ -66,9 +72,24 @@ export default function FriendsPage() {
             Add
           </button>
         </form>
+        {selectedFriends.length > 0 && (
+          <>
+            <button
+              onClick={createConversation}
+              className="w-1/4 bg-lilac rounded-full px-5 py-3 font-bold text-xl mt-4"
+            >
+              Start Conversation!
+            </button>
+          </>
+        )}
         <div className="flex flex-col justify-center items-center gap-4 w-1/6 mt-4">
           {friendStore.map((friend, i) => (
-            <FriendBox friend={friend} key={`${friend.username}-${i}`} />
+            <FriendBox
+              friend={friend}
+              selectedFriends={selectedFriends}
+              setSelectedFriends={setSelectedFriends}
+              key={`${friend.username}-${i}`}
+            />
           ))}
         </div>
       </div>
