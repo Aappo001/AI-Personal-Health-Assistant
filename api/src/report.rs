@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -9,24 +9,8 @@ use crate::AppState;
 use crate::auth::JwtAuth;
 use crate::users::UserToken;
 use crate::error::AppError;
-use std::io::{BufWriter, Cursor};
-use serde::{Deserialize, Serialize};
-use chrono::NaiveDateTime;
-
-
-#[derive(Serialize, Deserialize)]
-pub struct HealthForm {
-    pub height: Option<f64>,
-    pub weight: Option<f64>,
-    pub exercise_duration: Option<f64>,
-    pub sleep_hours: Option<f64>,
-    pub notes: Option<String>,
-    pub food_intake: Option<String>,
-    pub user_id: Option<i64>,
-    pub id: Option<i64>,
-    pub created_at: Option<NaiveDateTime>,
-    pub modified_at: Option<NaiveDateTime>,
-}
+use std::io::BufWriter;
+use crate::forms::HealthForm;
 
 pub async fn generate_pdf_report(
     State(state): State<AppState>,
