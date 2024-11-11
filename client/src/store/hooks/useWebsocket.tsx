@@ -14,6 +14,7 @@ import {
   wsRequestMessages,
   wsRequestFriends,
   wsRequestFriendRequests,
+  wsSendMessage,
 } from "../../utils/ws-utils";
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
@@ -143,18 +144,12 @@ export default function useWebsocketSetup() {
   }, []);
 
   return {
-    handleSendMessage: (message: string, conversationId: number) => {
+    handleSendMessage: (message: string, conversationId?: number, aiModel?: number) => {
       if (!socketRef.current) {
         console.error(`Tried to send message ${message} while WS is null`);
         return;
       }
-      socketRef.current.send(
-        JSON.stringify({
-          type: "SendMessage",
-          message: message,
-          conversationId: conversationId,
-        })
-      );
+      wsSendMessage(socketRef.current, message, conversationId, aiModel);
     },
 
     sendFriendRequest: (username: string, accept: boolean) => {

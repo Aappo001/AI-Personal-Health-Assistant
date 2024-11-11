@@ -56,6 +56,17 @@ export const wsRequestFriendRequests = (ws: WebSocket) => {
     }))
 }
 
+export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: number, aiModel?: number) => {
+      ws.send(
+        JSON.stringify({
+          type: "SendMessage",
+          message: message,
+          conversationId: conversationId,
+          aiModelId: aiModel
+        })
+      );
+}
+
 export const SocketResponse = {
     FriendRequest: "FriendRequest",
     Message: "Message",
