@@ -61,12 +61,17 @@ export default function ChatSidebar() {
         >
           <p className="text-xl text-offwhite p-4">Friends List</p>
         </div>
-        {Object.entries(messageStore).map(([conversationId, _]) => (
+        {Object.entries(messageStore).map(([conversationId, messages]) => (
           <RecentConversation
             id={parseInt(conversationId)}
             activeIndex={activeConvo}
             onClick={handleClick}
             key={`convo-${conversationId}`}
+            recentMessage={
+              messages
+                ? messages[messages.length - 1].content.slice(0, 16)
+                : "No previous messages"
+            }
           />
         ))}
       </div>
