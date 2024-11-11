@@ -1,15 +1,17 @@
 import { useParams } from "react-router-dom";
 import useMessageStore from "../store/hooks/useMessageStore";
-import { useUserMapContext } from "./UserMapContext";
+import { useUserMapContext, useUserMapDispatchContext } from "./UserMapContext";
 import { useContext, useState } from "react";
 import { WebsocketContext } from "./Chat";
 import SpeechBubble from "./SpeechBubble";
 import useUserStore from "../store/hooks/useUserStore";
+import { getUserFromId } from "../utils/utils";
 
 export default function ChatMessagePage() {
   const user = useUserStore();
-  const userMap = useUserMapContext();
   const messageStore = useMessageStore();
+  const userMap = useUserMapContext();
+  const updateUserMap = useUserMapDispatchContext();
   const { handleSendMessage } = useContext(WebsocketContext);
   const [message, setMessage] = useState("");
   let { id } = useParams();
@@ -22,14 +24,28 @@ export default function ChatMessagePage() {
     <div className="flex flex-col justify-between items-center w-screen h-screen py-32">
       <h1 className="text-6xl text-offwhite">Conversation {id}</h1>
       <div className=" w-2/5 flex flex-col gap-4">
-        {messageStore[parseInt(id)]?.map((message, i) => (
-          <SpeechBubble
-            message={message.content}
-            from={userMap[message.userId]}
-            isFromUser={message.userId === user.id}
-            key={`${message.userId}-${i}`}
-          />
-        ))}
+        {messageStore[parseInt(id)]?.map((message, i) => {
+          if (userMap[message.userId] === undefined) {
+            console.log("UserMap userId is undefined");
+
+            getUserFromId(message.userId)
+              .then((unknownUser) => {
+                if (!unknownUser) return;
+                updateUserMap({ ...userMap, [message.userId]: unknownUser.username });
+              })
+              .catch((err) => {
+                console.log(`Error getting user: ${err}`);
+              });
+          }
+          return (
+            <SpeechBubble
+              message={message.content}
+              from={userMap[message.userId]}
+              isFromUser={message.userId === user.id}
+              key={`${message.userId}-${i}`}
+            />
+          );
+        })}
       </div>
       <form
         onSubmit={(e) => {
