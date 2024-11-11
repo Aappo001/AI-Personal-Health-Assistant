@@ -50,7 +50,7 @@ export default function ChatSidebar() {
 
   return (
     <>
-      <div className="absolute w-[23vw] h-full flex flex-col justify-center items-center gap-4">
+      <div className="absolute w-[23vw] h-[90vh] flex flex-col items-center gap-4 overflow-y-auto mt-8">
         {loading && <p className="text-3xl text-offwhite">You have no friends!</p>}
         {userMap && <p className="text-xl text-offwhite">{JSON.stringify(userMap)}</p>}
         <div
