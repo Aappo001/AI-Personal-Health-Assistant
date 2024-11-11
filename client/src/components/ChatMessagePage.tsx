@@ -53,7 +53,7 @@ export default function ChatMessagePage() {
           setMessage("");
           handleSendMessage(message, parseInt(id));
         }}
-        className="bg-[#363131] w-1/2 focus:outline-none rounded-full text-offwhite flex justify-between"
+        className="bg-[#363131] w-2/5 focus:outline-none rounded-full text-offwhite flex justify-between"
       >
         <input
           type="text"
