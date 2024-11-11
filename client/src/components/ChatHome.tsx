@@ -5,6 +5,7 @@ import { WebsocketContext } from "./Chat";
 export const ChatHome = () => {
   const user = useUserStore();
   const [query, setQuery] = useState("");
+  //@ts-expect-error awaiting implementation
   const [selectedModel, setSelectedModel] = useState(1);
   const ws = useContext(WebsocketContext);
 
