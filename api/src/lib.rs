@@ -58,8 +58,7 @@ use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
 use upload::upload_file;
 use users::{
-    authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id,
-    get_user_by_username, get_user_from_token, update_user,
+    authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id, get_user_by_username, get_user_from_token, search_users, update_user
 };
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
@@ -232,6 +231,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/login", get(get_user_from_token))
         .route("/users/id/:id", get(get_user_by_id))
         .route("/users/username/:username", get(get_user_by_username))
+        .route("/users/search/:username", get(search_users))
         .route("/check/username/:username", get(check_username))
         .route("/check/email/:email", get(check_email))
         .route("/account", post(update_user))

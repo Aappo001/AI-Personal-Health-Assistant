@@ -521,3 +521,19 @@ fn generate_jwt(token_data: &UserToken) -> Result<String, AppError> {
         &EncodingKey::from_secret(dotenv!("JWT_KEY").as_bytes()),
     )?)
 }
+
+pub async fn search_users(
+    State(pool): State<SqlitePool>,
+    Path(username): Path<String>,
+) -> Result<Response, AppError> {
+    let username_query = format!("%{}%", username);
+    let query = sqlx::query_as!(
+        PublicUser,
+        "SELECT id, username, first_name, last_name FROM users WHERE username LIKE ?",
+        username_query
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    Ok((StatusCode::OK, AppJson(query)).into_response())
+}
