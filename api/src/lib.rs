@@ -15,6 +15,8 @@ pub mod upload;
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
+pub mod report;
+
 use std::{
     fmt::Debug,
     net::SocketAddr,
@@ -23,7 +25,7 @@ use std::{
     sync::{atomic::AtomicI64, Arc},
     time::Duration,
 };
-
+use report::generate_pdf_report;
 use anyhow::Result;
 use axum::{
     extract::FromRef,
@@ -237,7 +239,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
-        .route("/chat/models", get(get_ai_models))
+        .route("/chat/model s", get(get_ai_models))
+        .route("/report/pdf", get(generate_pdf_report))
         // Used to submit a new health form
         .route("/forms/health", post(save_health_form))
         // Used to quickly check if a user should submit another health form
