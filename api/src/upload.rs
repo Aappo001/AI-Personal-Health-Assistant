@@ -34,19 +34,28 @@ pub struct AppFile {
 }
 
 impl AppFile {
+    /// Parse the base64 encoded data into a file.
+    /// Data is expected to be in the format `data:[mime type];base64,[base64 encoded data]`
+    /// Or just the base64 encoded data.
     pub fn from_base64(data: &str) -> Result<Self, AppError> {
+        // Split the data into the mime type and the base64 encoded data
+        // head should contain `data:[mime type];base64` and encoded_data should contain the base64 encoded data
         let (head, encoded_data) = match data.split_once(',') {
             Some((head, encoded_data)) => (Some(head), encoded_data),
             // Assume that the data is just the base64 encoded data
             None => (None, data),
         };
+
         let data = general_purpose::STANDARD.decode(encoded_data.as_bytes())?;
+
         let mime = infer::get(&data).ok_or_else(|| {
             AppError::UserError((
                 StatusCode::BAD_REQUEST,
                 "Unable to determine mime type".into(),
             ))
         })?;
+
+        // If the mime type is provided, check if it matches the actual mime type
         if let Some(mut head) = head {
             head = head
                 .split_once(';')
@@ -71,6 +80,14 @@ pub async fn upload_file(
     JwtAuth(user): JwtAuth<UserToken>,
     AppJson(upload_data): AppJson<FileUpload>,
 ) -> Result<Response, AppError> {
+    // Check if the base64 encoded file data is too large
+    if upload_data.file_data.len() > 10_000_000 {
+        return Err(AppError::UserError((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "File size too large".into(),
+        )));
+    }
+
     // Decode the base64 encoded data
     let upload_file = AppFile::from_base64(&upload_data.file_data)?;
 
@@ -91,14 +108,16 @@ pub async fn upload_file(
         Err(e) => return Err(e.into()),
         _ => (),
     }
-    let path = PathBuf::from(format!("./uploads/{}", file_name));
+    let mime = upload_file.mime.mime_type();
+    let path = PathBuf::from(format!("uploads/{}", file_name));
 
     let file_id = if !path.exists() {
         let mut file = File::create(&path).await?;
         file.write_all(&upload_file.data).await?;
         sqlx::query!(
-            "INSERT INTO files (path) VALUES (?) ON CONFLICT DO NOTHING RETURNING id",
-            file_name
+            "INSERT INTO files (path, mime) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING id",
+            file_name,
+            mime
         )
         .fetch_one(&state)
         .await?
@@ -110,7 +129,7 @@ pub async fn upload_file(
             .id
     };
 
-    let upload_name = upload_data.file_name.unwrap_or(file_name.clone());
+    let upload_name = upload_data.file_name.unwrap_or(file_name);
     let id = sqlx::query!(
             "INSERT INTO file_uploads (file_id, user_id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING file_id as id",
             file_id,

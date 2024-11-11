@@ -1,6 +1,7 @@
 CREATE TABLE files (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     path TEXT UNIQUE NOT NULL,
+    mime TEXT UNIQUE NOT NULL DEFAULT 'application/octet-stream',
     -- When the file was first uploaded
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

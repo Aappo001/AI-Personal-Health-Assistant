@@ -55,6 +55,7 @@ pub struct CreateUser {
         custom(function = "validate_username")
     )]
     pub username: String,
+    pub image_id: Option<i64>,
 }
 
 pub trait PrettyValidate {
@@ -304,6 +305,7 @@ pub async fn authenticate_user(
         email: existing_user.email,
         first_name: existing_user.first_name,
         last_name: existing_user.last_name,
+        image_id: existing_user.image_id,
     };
 
     Ok((
@@ -330,6 +332,7 @@ pub struct SessionUser {
     pub last_name: Option<String>,
     pub username: String,
     pub email: String,
+    pub image_id: Option<i64>,
 }
 
 /// Returns the user data of the currently authenticated user
@@ -340,7 +343,7 @@ pub async fn get_user_from_token(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         SessionUser,
-        "SELECT id, username, email, first_name, last_name FROM users WHERE id = ?",
+        "SELECT id, username, email, first_name, last_name, image_id FROM users WHERE id = ?",
         user.id
     )
     .fetch_optional(&pool)
@@ -385,6 +388,7 @@ pub struct PublicUser {
     pub first_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_name: Option<String>,
+    pub image_id: Option<i64>,
 }
 
 pub async fn get_user_by_id(
@@ -393,7 +397,7 @@ pub async fn get_user_by_id(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         PublicUser,
-        "SELECT id, username, first_name, last_name FROM users WHERE id = ?",
+        "SELECT id, username, first_name, last_name, image_id FROM users WHERE id = ?",
         id
     )
     .fetch_optional(&pool)
@@ -414,7 +418,7 @@ pub async fn get_user_by_username(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         PublicUser,
-        "SELECT id, username, first_name, last_name FROM users WHERE username = ?",
+        "SELECT id, username, first_name, last_name, image_id FROM users WHERE username = ?",
         username
     )
     .fetch_optional(&pool)
@@ -451,14 +455,41 @@ pub async fn update_user(
         )));
     }
 
+    if let Some(image) = user_data.image_id {
+        let query = sqlx::query!("SELECT id, mime FROM files JOIN file_uploads ON files.id = file_uploads.file_id WHERE id = ? AND user_id = ?", image, user.id)
+            .fetch_optional(&pool)
+            .await?;
+        let mime_regex = regex::Regex::new(r"^image/.*$").unwrap();
+        // Check if the file is uploaded by the user and is an image
+        match query {
+            // File is uploaded by the user and is an image
+            Some(val) if mime_regex.is_match(&val.mime) => (),
+            // File is uploaded by the user but is not an image
+            Some(_) => {
+                return Err(AppError::UserError((
+                    StatusCode::BAD_REQUEST,
+                    "File id is not an image".into(),
+                )))
+            }
+            // File was not uploaded by the user
+            None => {
+                return Err(AppError::UserError((
+                    StatusCode::NOT_FOUND,
+                    "Image not found".into(),
+                )))
+            }
+        }
+    }
+
     // Update the user in the database
     let user = sqlx::query_as!(
         SessionUser,
-        "UPDATE users SET first_name = ?, last_name = ?, email = ?, username = ? WHERE id = ? RETURNING id, username, email, first_name, last_name",
+        "UPDATE users SET first_name = ?, last_name = ?, email = ?, username = ?, image_id = ? WHERE id = ? RETURNING id, username, email, first_name, last_name, image_id",
         user_data.first_name,
         user_data.last_name,
         user_data.email,
         user_data.username,
+        user_data.image_id,
         user.id
     ).fetch_one(&pool).await?;
 
@@ -529,7 +560,7 @@ pub async fn search_users(
     let username_query = format!("%{}%", username);
     let query = sqlx::query_as!(
         PublicUser,
-        "SELECT id, username, first_name, last_name FROM users WHERE username LIKE ?",
+        "SELECT id, username, first_name, last_name, image_id FROM users WHERE username LIKE ?",
         username_query
     )
     .fetch_all(&pool)
