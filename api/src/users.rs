@@ -55,6 +55,7 @@ pub struct CreateUser {
         custom(function = "validate_username")
     )]
     pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image_id: Option<i64>,
 }
 
@@ -270,7 +271,7 @@ pub async fn authenticate_user(
     user_data.app_validate()?;
 
     let Some(existing_user) =
-        sqlx::query!("SELECT * FROM users where username = ?", user_data.username)
+        sqlx::query!("SELECT users.id, username, email, first_name, last_name, password_hash, path as image_path FROM users LEFT JOIN files ON users.image_id = files.id WHERE username = ?", user_data.username)
             .fetch_optional(&pool)
             .await?
     else {
@@ -305,7 +306,9 @@ pub async fn authenticate_user(
         email: existing_user.email,
         first_name: existing_user.first_name,
         last_name: existing_user.last_name,
-        image_id: existing_user.image_id,
+        // Have to check if the image path is empty since it is left join and
+        // sqlx can't check if the join has a null column for some reason
+        image_path: (!existing_user.image_path.is_empty()).then_some(existing_user.image_path),
     };
 
     Ok((
@@ -332,7 +335,8 @@ pub struct SessionUser {
     pub last_name: Option<String>,
     pub username: String,
     pub email: String,
-    pub image_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_path: Option<String>,
 }
 
 /// Returns the user data of the currently authenticated user
@@ -343,7 +347,7 @@ pub async fn get_user_from_token(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         SessionUser,
-        "SELECT id, username, email, first_name, last_name, image_id FROM users WHERE id = ?",
+        "SELECT users.id, username, email, first_name, last_name, path as image_path FROM users LEFT JOIN files ON users.image_id = files.id WHERE users.id = ?",
         user.id
     )
     .fetch_optional(&pool)
@@ -388,7 +392,8 @@ pub struct PublicUser {
     pub first_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_name: Option<String>,
-    pub image_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_path: Option<String>,
 }
 
 pub async fn get_user_by_id(
@@ -397,7 +402,7 @@ pub async fn get_user_by_id(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         PublicUser,
-        "SELECT id, username, first_name, last_name, image_id FROM users WHERE id = ?",
+        "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE users.id = ?",
         id
     )
     .fetch_optional(&pool)
@@ -418,7 +423,7 @@ pub async fn get_user_by_username(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         PublicUser,
-        "SELECT id, username, first_name, last_name, image_id FROM users WHERE username = ?",
+        "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE username = ?",
         username
     )
     .fetch_optional(&pool)
@@ -482,17 +487,23 @@ pub async fn update_user(
     }
 
     // Update the user in the database
-    let user = sqlx::query_as!(
-        SessionUser,
-        "UPDATE users SET first_name = ?, last_name = ?, email = ?, username = ?, image_id = ? WHERE id = ? RETURNING id, username, email, first_name, last_name, image_id",
+    sqlx::query!(
+        "UPDATE users SET first_name = ?, last_name = ?, email = ?, username = ?, image_id = ? WHERE id = ?",
         user_data.first_name,
         user_data.last_name,
         user_data.email,
         user_data.username,
         user_data.image_id,
         user.id
-    ).fetch_one(&pool).await?;
+    ).execute(&pool).await?;
 
+    let user = sqlx::query_as!(
+        SessionUser,
+        "SELECT users.id as id, username, first_name, last_name, email, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE users.id = ?",
+        user.id
+    )
+    .fetch_one(&pool)
+    .await?;
     // Generate a new token with the updated user data
     let token_data = UserToken {
         id: user.id,
@@ -560,7 +571,7 @@ pub async fn search_users(
     let username_query = format!("%{}%", username);
     let query = sqlx::query_as!(
         PublicUser,
-        "SELECT id, username, first_name, last_name, image_id FROM users WHERE username LIKE ?",
+        "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE username LIKE ?",
         username_query
     )
     .fetch_all(&pool)
