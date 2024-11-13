@@ -957,16 +957,28 @@ async fn handle_message(
                         return Err(anyhow!("User is not in the conversation").into());
                     }
 
-                    socket.channel.send(SocketResponse::Conversation(
-                        sqlx::query_as!(
-                            Conversation,
-                            "SELECT * FROM conversations WHERE id = ?",
-                            conversation_id
-                        )
-                        .fetch_optional(&state.pool)
-                        .await?
-                        .ok_or_else(|| anyhow!("Conversation does not exist"))?,
-                    ))?;
+                    let conversation =
+                        sqlx::query!("SELECT * FROM conversations WHERE id = ?", conversation_id)
+                            .fetch_optional(&state.pool)
+                            .await?
+                            .ok_or_else(|| anyhow!("Conversation does not exist"))?;
+
+                    let users = sqlx::query!(
+                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
+                        conversation_id
+                    )
+                    .fetch_all(&state.pool)
+                    .await?;
+
+                    socket
+                        .channel
+                        .send(SocketResponse::Conversation(Conversation {
+                            id: conversation.id,
+                            title: conversation.title,
+                            created_at: conversation.created_at,
+                            last_message_at: conversation.last_message_at,
+                            users: Some(users.into_iter().map(|u| u.user_id).collect()),
+                        }))?;
                 }
                 SocketRequest::RequestConversations(request_message) => {
                     let limit = request_message.message_num.unwrap_or(50);
@@ -975,8 +987,7 @@ async fn handle_message(
                         .unwrap_or(NaiveDateTime::MAX);
                     // Query the database for the conversations the user is in
                     // Use fetch instead of fetch all to stream results to the client
-                    let mut query = sqlx::query_as!(
-                        Conversation,
+                    let mut query = sqlx::query!(
                         r#"SELECT conversations.id, conversations.title, conversations.created_at, conversations.last_message_at FROM conversations
                            JOIN user_conversations
                            ON conversations.id = user_conversations.conversation_id
@@ -989,9 +1000,16 @@ async fn handle_message(
                     )
                     .fetch(&state.pool);
                     while let Some(conversation) = query.next().await {
+                        let conversation = conversation?;
                         socket
                             .channel
-                            .send(SocketResponse::Conversation(conversation?))?;
+                            .send(SocketResponse::Conversation(Conversation {
+                                id: conversation.id,
+                                title: conversation.title,
+                                created_at: conversation.created_at,
+                                last_message_at: conversation.last_message_at,
+                                users: None,
+                            }))?;
                     }
                 }
                 SocketRequest::RequestFriends => {

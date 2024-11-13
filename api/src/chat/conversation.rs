@@ -1,7 +1,5 @@
 use axum::{
-    extract::{
-        Path, State,
-    },
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -9,14 +7,8 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, SqlitePool};
 
-use crate::{
-    auth::JwtAuth,
-    error::AppError,
-};
-use crate::{
-    error::AppJson,
-    users::UserToken,
-};
+use crate::{auth::JwtAuth, error::AppError};
+use crate::{error::AppJson, users::UserToken};
 
 use super::SendMessage;
 
@@ -33,24 +25,10 @@ pub struct Conversation {
     pub title: Option<String>,
     pub created_at: NaiveDateTime,
     pub last_message_at: NaiveDateTime,
-}
-
-/// Get all the conversations the user is in
-pub async fn get_user_conversations(
-    State(pool): State<SqlitePool>,
-    JwtAuth(user): JwtAuth<UserToken>,
-) -> Result<Response, AppError> {
-    let res = &sqlx::query_as!(
-        Conversation,
-        r#"SELECT id, title, created_at, conversations.last_message_at FROM conversations
-            JOIN user_conversations ON user_conversations.conversation_id = conversations.id
-            WHERE user_conversations.user_id = ? 
-            ORDER BY conversations.last_message_at DESC"#,
-        user.id,
-    )
-    .fetch_all(&pool)
-    .await?;
-    Ok((StatusCode::OK, AppJson(res)).into_response())
+    /// The ids of the users in the conversation
+    /// Will be None if requesting data on multiple conversations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub users: Option<Box<[i64]>>,
 }
 
 /// Create a conversation between the user and the AI from an initial message
@@ -100,14 +78,22 @@ pub async fn create_conversation(
     // Everything went well, commit the transaction
     tx.commit().await?;
 
-    // Return the new conversation for future messages
-    Ok(sqlx::query_as!(
-        Conversation,
-        "SELECT id, title, created_at, last_message_at FROM conversations where id = ? ORDER BY last_message_at DESC",
+    let conversation = sqlx::query!(
+        "SELECT id, title, created_at, last_message_at FROM conversations
+        WHERE id = ? ORDER BY last_message_at DESC",
         conversation_id,
     )
-        .fetch_one(pool)
-    .await?)
+    .fetch_one(pool)
+    .await?;
+
+    // Return the new conversation for future messages
+    Ok(Conversation {
+        id: conversation.id,
+        title: conversation.title,
+        created_at: conversation.created_at,
+        last_message_at: conversation.last_message_at,
+        users: Some([user.id].into()),
+    })
 }
 
 /// A message in a conversation

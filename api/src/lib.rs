@@ -46,7 +46,6 @@ use tower_http::{
 
 use chat::{
     connect_conversation, create_conversation_rest, get_ai_models, get_conversation,
-    get_user_conversations,
 };
 use cli::Args;
 use scc::HashMap;
@@ -236,7 +235,6 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/check/email/:email", get(check_email))
         .route("/account", post(update_user))
         .route("/account", delete(delete_user))
-        .route("/chat", get(get_user_conversations))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
         .route("/chat/models", get(get_ai_models))
