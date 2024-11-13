@@ -29,7 +29,7 @@ pub struct StreamMessage {
     pub conversation_id: i64,
     /// The content of the current message
     // You must combine consecutive messages from the same role into a single message
-    pub message: String,
+    pub message: Option<String>,
 }
 
 /// An AI model that can be used to generate responses
@@ -204,10 +204,10 @@ pub async fn query_model(
                     state,
                     SocketResponse::StreamData(StreamMessage {
                         conversation_id,
-                        message: bytes["choices"][0]["delta"]["content"]
+                        message: Some(bytes["choices"][0]["delta"]["content"]
                             .as_str()
                             .unwrap_or("")
-                            .to_string(),
+                            .to_string()),
                     }),
                 )
                 .await?;
@@ -219,6 +219,16 @@ pub async fn query_model(
             Err(e) => return Err(AppError::from(e)),
         }
     }
+
+    // Broadcast the that the AI model has finished processing
+    broadcast_event(
+        state,
+        SocketResponse::StreamData(StreamMessage {
+            conversation_id,
+            message: None,
+        }),
+    )
+    .await?;
     Ok(res_content)
 }
 
