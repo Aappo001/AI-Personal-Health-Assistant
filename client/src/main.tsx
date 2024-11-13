@@ -13,10 +13,12 @@ import ChatMessagePage from "./components/ChatMessagePage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import ProfilePage from "./components/ProfilePage.tsx";
 import UserHealthForm from "./components/UserForm.tsx";
+import FriendsPage from "./components/FriendsPage.tsx";
+import WebsocketTesting from "./components/WebsocketTesting.tsx";
 
 const router = createBrowserRouter([
   {
-      path: "/",
+    path: "/",
     element: <App />,
     errorElement: <PageNotFound />, //will load when an error or not found error occurs anywhere in the app
   },
@@ -41,8 +43,13 @@ const router = createBrowserRouter([
         errorElement: <PageNotFound />,
       },
       {
-        path: "/chat/messages/:friend",
+        path: "/chat/messages/:id",
         element: <ChatMessagePage />,
+        errorElement: <PageNotFound />,
+      },
+      {
+        path: "/chat/friends",
+        element: <FriendsPage />,
         errorElement: <PageNotFound />,
       },
     ],
@@ -57,7 +64,11 @@ const router = createBrowserRouter([
     errorElement: <PageNotFound />,
   },
   {
-  path: "/healthform", 
+    path: "/ws",
+    element: <WebsocketTesting />,
+  },
+  {
+    path: "/healthform",
     element: <UserHealthForm />,
     errorElement: <PageNotFound />,
   },
