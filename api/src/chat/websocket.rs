@@ -19,7 +19,7 @@ use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
@@ -730,41 +730,42 @@ async fn invite_user(
         }
     };
 
-    // Begin a transaction to ensure that all the users are added to the converation at the same
-    // time
-    let mut tx = pool.begin().await?;
-    for invitee in invitees {
-        // Check if the user is already in the conversation
-        if sqlx::query!(
-            "SELECT conversation_id FROM user_conversations WHERE user_id = ? AND conversation_id = ?",
-            invitee,
-            conversation_id
-        )
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_some()
-        {
-            return Err(anyhow!("User {} is already in the conversation", invitee).into());
-        }
-        // Check if the user is in the database
-        if sqlx::query!("SELECT id FROM users WHERE id = ?", invitee)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_none()
-        {
-            return Err(anyhow!("User {} does not exist", invitee).into());
-        }
-        // Add the user to the conversation
-        sqlx::query!(
-            "INSERT INTO user_conversations (user_id, conversation_id) VALUES (?, ?)",
-            invitee,
-            conversation_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
+    // Build a query to check if all the users being invited exist
+    // Final query will look like this: SELECT COUNT(id) FROM users WHERE id IN (?, ?, ?)
+    let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new("SELECT COUNT(id) FROM users WHERE id IN (");
 
+    let mut separated = query_builder.separated(", ");
+    for invitee in invitees {
+        separated.push_bind(invitee);
+    }
+    // Use query_scalar to extract the value of the first column, COUNT(id) in this case,
+    // as a single value
+    let query = query_builder.push(")").build_query_scalar::<u64>();
+    let num_rows: usize = query.fetch_one(pool).await? as usize;
+    
+    // If the number of rows returned is not equal to the number of users being invited
+    // then at least one user does not exist
+    if num_rows != invitees.len() {
+        return Err(anyhow!("One or more users do not exist").into());
+    }
+
+    // Use a query builder to invite all the users at once instead of multiple
+    // queries in a loop for significantly better performance
+    // Can't use the query! macro because it doesn't support bulk inserts
+    // Final query will look like this: 
+    // INSERT INTO user_conversations (user_id, conversation_id)
+    // VALUES (?, ?), (?, ?), (?, ?) ON CONFLICT DO NOTHING
+    let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new("INSERT INTO user_conversations (user_id, conversation_id) ");
+
+    // Pushes a VALUES clause with the user_id and conversation_id for each user
+    query_builder.push_values(invitees, |mut builder, invitee|{
+        builder.push_bind(invitee).push_bind(conversation_id);
+    });
+
+    query_builder.push(" ON CONFLICT DO NOTHING");
+    
+    let query = query_builder.build();
+    query.execute(pool).await?;
     Ok(conversation_id)
 }
 
@@ -976,7 +977,7 @@ async fn handle_message(
                                     users: Some(query.iter().map(|u| u.user_id).collect()),
                                 }))?;
                         }
-                        None => return Err(anyhow!("User is not in the conversation").into()),
+                        None => return Err(anyhow!("User is not in conversation: {}", conversation_id).into()),
                     }
                 }
                 SocketRequest::RequestConversations(request_message) => {
