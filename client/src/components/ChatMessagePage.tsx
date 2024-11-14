@@ -15,11 +15,23 @@ export default function ChatMessagePage() {
   const updateUserMap = useUserMapDispatchContext();
   const { handleSendMessage } = useContext(WebsocketContext);
   const [message, setMessage] = useState("");
+  const [selectedModel, setSelectedModel] = useState(3);
+  const [aiEnabled, setAiEnabled] = useState(false);
   let { id } = useParams();
   if (!id) {
     window.location.href = "/chat";
     return;
   }
+
+  const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setMessage("");
+    if (aiEnabled) {
+      handleSendMessage(message, parseInt(id), selectedModel);
+    } else {
+      handleSendMessage(message, parseInt(id));
+    }
+  };
 
   return (
     <div className="flex flex-col justify-between items-center w-screen h-screen py-32">
@@ -49,11 +61,7 @@ export default function ChatMessagePage() {
         })}
       </div>
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setMessage("");
-          handleSendMessage(message, parseInt(id));
-        }}
+        onSubmit={handleSubmit}
         className="bg-[#363131] w-2/5 focus:outline-none rounded-full text-offwhite flex justify-between"
       >
         <input
@@ -71,7 +79,10 @@ export default function ChatMessagePage() {
           Submit
         </button>
       </form>
-      <Toggle />
+      <div>
+        {aiEnabled && <h1 className=" text-green-600 text-xl">AI ENABLED</h1>}
+        <Toggle action={setAiEnabled} />
+      </div>
     </div>
   );
 }
