@@ -949,36 +949,35 @@ async fn handle_message(
                     request_messages(&state.pool, &request_message, &socket.channel, user).await?;
                 }
                 SocketRequest::RequestConversation { conversation_id } => {
-                    if !sqlx::query!(
-                        "SELECT conversation_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+                    // Get the converation and all of the users inside the conversation in the same
+                    // query to minimize the number of database queries
+                    let mut query =  sqlx::query!(
+                        "SELECT id, title, conversations.created_at, conversations.last_message_at, user_id FROM conversations
+                        JOIN user_conversations
+                        ON conversations.id = user_conversations.conversation_id
+                        WHERE conversation_id = ?",
                         conversation_id,
-                        user.id
-                    ).fetch_optional(&state.pool).await?.is_some_and(|x| x.conversation_id == conversation_id) {
-                        return Err(anyhow!("User is not in the conversation").into());
+                    ).fetch_all(&state.pool).await?;
+
+                    // Check if the user is in the conversation
+                    // Using `iter_mut` instead of iter because we need to take the title
+                    // out of the conversation and send it to the client
+                    match query.iter_mut().find(|row| row.user_id == user.id) {
+                        Some(conversation) => {
+                            socket
+                                .channel
+                                .send(SocketResponse::Conversation(Conversation {
+                                    id: conversation.id,
+                                    created_at: conversation.created_at,
+                                    last_message_at: conversation.last_message_at,
+                                    // Have to take the title because we can't move it from the row
+                                    // and cloning is more expensive than taking
+                                    title: conversation.title.take(),
+                                    users: Some(query.iter().map(|u| u.user_id).collect()),
+                                }))?;
+                        }
+                        None => return Err(anyhow!("User is not in the conversation").into()),
                     }
-
-                    let conversation =
-                        sqlx::query!("SELECT * FROM conversations WHERE id = ?", conversation_id)
-                            .fetch_optional(&state.pool)
-                            .await?
-                            .ok_or_else(|| anyhow!("Conversation does not exist"))?;
-
-                    let users = sqlx::query!(
-                        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
-                        conversation_id
-                    )
-                    .fetch_all(&state.pool)
-                    .await?;
-
-                    socket
-                        .channel
-                        .send(SocketResponse::Conversation(Conversation {
-                            id: conversation.id,
-                            title: conversation.title,
-                            created_at: conversation.created_at,
-                            last_message_at: conversation.last_message_at,
-                            users: Some(users.into_iter().map(|u| u.user_id).collect()),
-                        }))?;
                 }
                 SocketRequest::RequestConversations(request_message) => {
                     let limit = request_message.message_num.unwrap_or(50);
