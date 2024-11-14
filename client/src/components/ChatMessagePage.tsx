@@ -6,6 +6,7 @@ import { WebsocketContext } from "./Chat";
 import SpeechBubble from "./SpeechBubble";
 import useUserStore from "../store/hooks/useUserStore";
 import { getUserFromId } from "../utils/utils";
+import Toggle from "./Toggle";
 
 export default function ChatMessagePage() {
   const user = useUserStore();
@@ -70,6 +71,7 @@ export default function ChatMessagePage() {
           Submit
         </button>
       </form>
+      <Toggle />
     </div>
   );
 }

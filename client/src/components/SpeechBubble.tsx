@@ -9,7 +9,13 @@ export default function SpeechBubble({ message, from, isFromUser }: Props) {
   const spacing = isFromUser ? "self-end" : "self-start";
   return (
     <div className="flex flex-col">
-      <p className={`px-5 py-3 rounded-full text-xl ${bgColor} ${spacing}`}>{message}</p>
+      <p
+        className={`px-5 py-3 ${
+          message.length > 125 ? "rounded-3xl" : "rounded-full"
+        } text-xl ${bgColor} ${spacing}`}
+      >
+        {message}
+      </p>
       {!isFromUser && <p className={`text-orangey font-semibold text-base ml-3`}>{from}</p>}
     </div>
   );

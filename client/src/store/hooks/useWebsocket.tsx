@@ -66,6 +66,11 @@ export default function useWebsocketSetup() {
           );
           break;
 
+        // {"type":"StreamData","conversationId":3,"message":""}
+        case SocketResponse.StreamData:
+          console.log(`Received StreamData: ${data.message}`);
+          break;
+
         case SocketResponse.FriendRequest:
           console.log("SocketResponse: FriendRequest");
           const userIsSender = data.sender_id === userId;

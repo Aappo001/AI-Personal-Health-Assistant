@@ -66,7 +66,6 @@ export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: n
         })
       );
 }
-
 export const SocketResponse = {
     FriendRequest: "FriendRequest",
     Message: "Message",
@@ -74,5 +73,6 @@ export const SocketResponse = {
     Invite: "Invite",
     Conversation: "Conversation",
     Error: "Error",
-    FriendData: "FriendData"
+    FriendData: "FriendData",
+    StreamData: "StreamData"
 }

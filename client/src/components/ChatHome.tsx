@@ -6,7 +6,7 @@ export const ChatHome = () => {
   const user = useUserStore();
   const [query, setQuery] = useState("");
   //@ts-expect-error awaiting implementation
-  const [selectedModel, setSelectedModel] = useState(1);
+  const [selectedModel, setSelectedModel] = useState(3);
   const ws = useContext(WebsocketContext);
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
