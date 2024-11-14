@@ -47,6 +47,7 @@ export type ServerAppError = {
 }
 
 export type Message = {
-    userId: number,
+    userId: number | undefined,
     content: string,
+    fromAi?: boolean
 }

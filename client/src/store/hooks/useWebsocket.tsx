@@ -19,7 +19,12 @@ import {
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
 import { addFriend, removeFriend, upgradeFriendStatus } from "../friendsSlice";
-import { initializeConversationId, pushMessage } from "../messageSlice";
+import {
+  initializeConversationId,
+  pushMessage,
+  pushStreamMessage,
+  replaceAiMessage,
+} from "../messageSlice";
 import { Rootstate } from "../store";
 import { Friend } from "../../types";
 import { useSelector } from "react-redux";
@@ -27,6 +32,7 @@ import { useSelector } from "react-redux";
 export default function useWebsocketSetup() {
   const socketRef = useRef<WebSocket | null>(null);
   const [loading, setLoading] = useState(true);
+  const [streamEndSignal, setStreamEndSignal] = useState(false);
   const dispatch = useAppDispatch();
   const userId = useSelector((state: Rootstate) => state.user.id);
 
@@ -57,18 +63,27 @@ export default function useWebsocketSetup() {
       console.log("Received websocket response");
       switch (type) {
         case SocketResponse.Message:
-          console.log(`Received message: ${data.message} from user ${data.userId}`);
-          dispatch(
-            pushMessage({
-              id: data.conversationId,
-              message: { userId: data.userId, content: data.message },
-            })
-          );
+          console.log(`Received message from user ${data.userId}`);
+          if (streamEndSignal) {
+            dispatch(replaceAiMessage({ id: data.conversationId, message: data.message }));
+            setStreamEndSignal(false);
+          } else {
+            dispatch(
+              pushMessage({
+                id: data.conversationId,
+                message: { userId: data.userId, content: data.message },
+              })
+            );
+          }
           break;
 
         // {"type":"StreamData","conversationId":3,"message":""}
         case SocketResponse.StreamData:
-          console.log(`Received StreamData: ${data.message}`);
+          if (data.message === null) {
+            setStreamEndSignal(true);
+            return;
+          }
+          dispatch(pushStreamMessage({ id: data.conversationId, message: data.message }));
           break;
 
         case SocketResponse.FriendRequest:
