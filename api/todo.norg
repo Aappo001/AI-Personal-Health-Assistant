@@ -17,7 +17,7 @@
   - (x) Integrate message searching
   -- (x) Sorting search results
   -- (x) Add custom search filters (date range, user, etc.)
-  - ( ) Store user settings
+  - (x) Store user settings
   - ( ) Add online indicator for users
   - ( ) Expand conversation functionality (optional/if i don't have anything else to do)
   -- ( ) Conversation ownership

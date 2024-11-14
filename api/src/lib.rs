@@ -57,7 +57,7 @@ use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
 use upload::upload_file;
 use users::{
-    authenticate_user, check_email, check_username, create_user, delete_user, get_user_by_id, get_user_by_username, get_user_from_token, search_users, update_user
+    authenticate_user, check_email, check_username, create_user, delete_user, get_settings, get_user_by_id, get_user_by_username, get_user_from_token, search_users, update_settings, update_user
 };
 
 /// The name of the package. This is defined in the `Cargo.toml` file.
@@ -233,8 +233,14 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/users/search/:username", get(search_users))
         .route("/check/username/:username", get(check_username))
         .route("/check/email/:email", get(check_email))
+        // Update user account data (email, username, etc.)
         .route("/account", post(update_user))
+        // Delete user account
         .route("/account", delete(delete_user))
+        // Get user settings
+        .route("/account/settings", get(get_settings))
+        // Update user settings
+        .route("/account/settings", post(update_settings))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
         .route("/chat/models", get(get_ai_models))

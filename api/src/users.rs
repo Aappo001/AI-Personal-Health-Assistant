@@ -15,7 +15,7 @@ use macros::response;
 use password_auth::VerifyError;
 use serde::{Deserialize, Serialize};
 use sonic_rs::json;
-use sqlx::SqlitePool;
+use sqlx::{prelude::Type, SqlitePool};
 use validator::{Validate, ValidationError, ValidationErrorsKind};
 
 use crate::{
@@ -113,14 +113,20 @@ pub async fn create_user(
     }
     let hashed_password = password_auth::generate_hash(&user_data.password);
 
-    sqlx::query!(
-        "INSERT INTO users (username, email, password_hash, first_name, last_name) VALUES (?, ?, ?, ?, ?)",
+    // Insert the user into the database
+    let user_id = sqlx::query!(
+        "INSERT INTO users (username, email, password_hash, first_name, last_name) VALUES (?, ?, ?, ?, ?) RETURNING id",
         user_data.username,
         user_data.email,
         hashed_password,
         user_data.first_name,
         user_data.last_name
-    ).execute(&pool).await?;
+    ).fetch_one(&pool).await?.id;
+
+    // Insert the default user settings
+    sqlx::query!("INSERT INTO user_settings (user_id) VALUES (?)", user_id)
+        .execute(&pool)
+        .await?;
 
     Ok((
         StatusCode::CREATED,
@@ -578,4 +584,67 @@ pub async fn search_users(
     .await?;
 
     Ok((StatusCode::OK, AppJson(query)).into_response())
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    pub ai_enabled: bool,
+    pub ai_model_id: Option<i64>,
+    /// Could be a bool for now but making it an enum in case we want to add more
+    /// themes in the future
+    pub theme: Theme,
+}
+
+#[derive(Serialize, Deserialize, Type)]
+#[sqlx(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    Light,
+    Dark,
+}
+
+/// Implementing From<String> for Theme so we can convert the theme
+/// Need for sqlx to convert the theme from the database to the enum
+impl From<String> for Theme {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "light" => Theme::Light,
+            "dark" => Theme::Dark,
+            _ => Theme::Dark,
+        }
+    }
+}
+
+/// Update the logged in user's settings
+pub async fn update_settings(
+    State(pool): State<SqlitePool>,
+    JwtAuth(user): JwtAuth<UserToken>,
+    AppJson(user_data): AppJson<Settings>,
+) -> Result<Response, AppError> {
+    sqlx::query!(
+        "UPDATE user_settings SET ai_enabled = ?, ai_model_id = ?, theme = ? WHERE user_id = ?",
+        user_data.ai_enabled,
+        user_data.ai_model_id,
+        user_data.theme,
+        user.id
+    )
+    .execute(&pool)
+    .await?;
+    Ok(StatusCode::OK.into_response())
+}
+
+/// Returns the logged in user's settings
+pub async fn get_settings(
+    State(pool): State<SqlitePool>,
+    JwtAuth(user): JwtAuth<UserToken>,
+) -> Result<Response, AppError> {
+    let settings = sqlx::query_as!(
+        Settings,
+        "SELECT ai_enabled, ai_model_id, theme FROM user_settings WHERE user_id = ?",
+        user.id
+    )
+    .fetch_one(&pool)
+    .await?;
+    Ok((StatusCode::OK, AppJson(settings)).into_response())
 }
