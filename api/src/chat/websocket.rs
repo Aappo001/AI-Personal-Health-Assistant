@@ -106,6 +106,10 @@ pub enum SocketResponse {
         /// When the invite was created
         invited_at: NaiveDateTime,
     },
+    LeaveEvent {
+        conversation_id: i64,
+        user_id: i64,
+    },
     /// Friend request to be sent to the client
     FriendRequest {
         sender_id: i64,
@@ -159,7 +163,9 @@ enum SocketRequest {
     /// Edit a message in the conversation
     EditMessage(EditMessage),
     /// Deleted a message in the conversation
-    DeleteMessage { message_id: i64 },
+    DeleteMessage {
+        message_id: i64,
+    },
     /// Send, accept, reject, or revoke a friend request
     // Put all the friend request stuff in one enum variant
     // so its easier to handle on the frontend
@@ -180,19 +186,25 @@ enum SocketRequest {
         /// The users being invited to the conversation
         invitees: Box<[i64]>,
     },
+    LeaveConversation {
+        conversation_id: i64,
+    },
     /// Request to search messages in given conversations
     /// that match the query string
     SearchMessages(SearchMessage),
     /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
-    ReadMessage { conversation_id: i64 },
+    ReadMessage {
+        conversation_id: i64,
+    },
     /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
     /// Request data on a conversation with the given id
-    RequestConversation { conversation_id: i64 },
-
+    RequestConversation {
+        conversation_id: i64,
+    },
     /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
@@ -732,7 +744,8 @@ async fn invite_user(
 
     // Build a query to check if all the users being invited exist
     // Final query will look like this: SELECT COUNT(id) FROM users WHERE id IN (?, ?, ?)
-    let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new("SELECT COUNT(id) FROM users WHERE id IN (");
+    let mut query_builder: QueryBuilder<'_, Sqlite> =
+        QueryBuilder::new("SELECT COUNT(id) FROM users WHERE id IN (");
 
     let mut separated = query_builder.separated(", ");
     for invitee in invitees {
@@ -742,7 +755,7 @@ async fn invite_user(
     // as a single value
     let query = query_builder.push(")").build_query_scalar::<u64>();
     let num_rows: usize = query.fetch_one(pool).await? as usize;
-    
+
     // If the number of rows returned is not equal to the number of users being invited
     // then at least one user does not exist
     if num_rows != invitees.len() {
@@ -752,18 +765,19 @@ async fn invite_user(
     // Use a query builder to invite all the users at once instead of multiple
     // queries in a loop for significantly better performance
     // Can't use the query! macro because it doesn't support bulk inserts
-    // Final query will look like this: 
+    // Final query will look like this:
     // INSERT INTO user_conversations (user_id, conversation_id)
     // VALUES (?, ?), (?, ?), (?, ?) ON CONFLICT DO NOTHING
-    let mut query_builder: QueryBuilder<'_, Sqlite> = QueryBuilder::new("INSERT INTO user_conversations (user_id, conversation_id) ");
+    let mut query_builder: QueryBuilder<'_, Sqlite> =
+        QueryBuilder::new("INSERT INTO user_conversations (user_id, conversation_id) ");
 
     // Pushes a VALUES clause with the user_id and conversation_id for each user
-    query_builder.push_values(invitees, |mut builder, invitee|{
+    query_builder.push_values(invitees, |mut builder, invitee| {
         builder.push_bind(invitee).push_bind(conversation_id);
     });
 
     query_builder.push(" ON CONFLICT DO NOTHING");
-    
+
     let query = query_builder.build();
     query.execute(pool).await?;
     Ok(conversation_id)
@@ -844,7 +858,7 @@ async fn handle_message(
                             // Which ever one comes first will be returned and the other will
                             // be aborted
                             tokio::select! {
-                                ai_message = query_model(state, &send_message, &user) => {
+                                ai_message = query_model(state, &send_message, user) => {
                                     let ai_message = ai_message?;
                                     let stemmed_message = state.stemmer.stem_message(&ai_message);
                                     // Save the AI model's response to the database
@@ -977,7 +991,11 @@ async fn handle_message(
                                     users: Some(query.iter().map(|u| u.user_id).collect()),
                                 }))?;
                         }
-                        None => return Err(anyhow!("User is not in conversation: {}", conversation_id).into()),
+                        None => {
+                            return Err(
+                                anyhow!("User is not in conversation: {}", conversation_id).into()
+                            )
+                        }
                     }
                 }
                 SocketRequest::RequestConversations(request_message) => {
@@ -1067,6 +1085,17 @@ async fn handle_message(
                 SocketRequest::SearchMessages(message) => {
                     search_message(state, &message, &socket.channel).await?;
                 }
+                SocketRequest::LeaveConversation { conversation_id } => {
+                    leave_conversation(&state.pool, conversation_id, user.id).await?;
+                    broadcast_event(
+                        state,
+                        SocketResponse::LeaveEvent {
+                            conversation_id,
+                            user_id: user.id,
+                        },
+                    )
+                    .await?;
+                }
             }
         }
         Message::Binary(_) => {
@@ -1087,6 +1116,9 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
         SocketResponse::DeleteMessage(delete_msg) => delete_msg.conversation_id,
         SocketResponse::ReadEvent(event) => event.conversation_id,
         SocketResponse::StreamData(data) => data.conversation_id,
+        SocketResponse::LeaveEvent {
+            conversation_id, ..
+        } => *conversation_id,
         SocketResponse::Invite {
             conversation_id, ..
         } => *conversation_id,
@@ -1147,4 +1179,38 @@ async fn get_chat_message(pool: &SqlitePool, message_id: i64) -> Result<ChatMess
     )
     .fetch_one(pool)
     .await?)
+}
+
+/// Removes a user from a conversation
+/// If the conversation has no users left, it is also deleted
+async fn leave_conversation(
+    pool: &SqlitePool,
+    conversation_id: i64,
+    user_id: i64,
+) -> Result<(), AppError> {
+    // Remove the user from the conversation
+    sqlx::query!(
+        "DELETE FROM user_conversations WHERE user_id = ? and conversation_id = ?",
+        user_id,
+        conversation_id
+    )
+    .execute(pool)
+    .await?;
+
+    // Check how many users are left in the conversation
+    let remaining_users = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM user_conversations WHERE conversation_id = ?",
+        conversation_id
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Check if the conversation has no users left and delete it if it does
+    if remaining_users == 0 {
+        sqlx::query!("DELETE FROM conversations WHERE id = ?", conversation_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
 }

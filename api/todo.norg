@@ -21,7 +21,7 @@
   - ( ) Add online indicator for users
   - ( ) Expand conversation functionality (optional/if i don't have anything else to do)
   -- ( ) Conversation ownership
-  -- ( ) Leaving conversation
-  -- ( ) Deleting conversation
+  -- (x) Leaving conversation
+  -- (x) Deleting conversation
   -- ( ) Renaming conversation
   -- ( ) Change Invites to Invite requests
