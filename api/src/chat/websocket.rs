@@ -24,7 +24,7 @@ use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
 use crate::{
-    chat::{query_model, search::search_message, Conversation},
+    chat::{query_model, search::search_message, Conversation, ConversationUser},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
     AppState, InnerSocket,
@@ -967,7 +967,7 @@ async fn handle_message(
                     // Get the converation and all of the users inside the conversation in the same
                     // query to minimize the number of database queries
                     let mut query =  sqlx::query!(
-                        "SELECT id, title, conversations.created_at, conversations.last_message_at, user_id FROM conversations
+                        "SELECT id, title, conversations.created_at, conversations.last_message_at, user_id, user_conversations.last_message_at as user_last_message_at, last_read_at FROM conversations
                         JOIN user_conversations
                         ON conversations.id = user_conversations.conversation_id
                         WHERE conversation_id = ?",
@@ -988,7 +988,16 @@ async fn handle_message(
                                     // Have to take the title because we can't move it from the row
                                     // and cloning is more expensive than taking
                                     title: conversation.title.take(),
-                                    users: Some(query.iter().map(|u| u.user_id).collect()),
+                                    users: Some(
+                                        query
+                                            .iter()
+                                            .map(|u| ConversationUser {
+                                                id: u.user_id,
+                                                last_message_at: u.user_last_message_at,
+                                                last_read_at: u.last_read_at,
+                                            })
+                                            .collect(),
+                                    ),
                                 }))?;
                         }
                         None => {
@@ -1132,8 +1141,12 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
     .fetch_all(&state.pool)
     .await?;
     for user in users {
-        if let Some(user) = state.user_sockets.get(&user.user_id) {
-            if let Err(e) = user.channel.send(msg.clone()) {
+        if let Some(user) = state
+            .user_sockets
+            .read_async(&user.user_id, |_, v| v.channel.clone())
+            .await
+        {
+            if let Err(e) = user.send(msg.clone()) {
                 warn!("Error broadcasting event: {}", e);
             }
         }

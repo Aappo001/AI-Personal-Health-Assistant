@@ -28,7 +28,20 @@ pub struct Conversation {
     /// The ids of the users in the conversation
     /// Will be None if requesting data on multiple conversations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub users: Option<Box<[i64]>>,
+    pub users: Option<Box<[ConversationUser]>>,
+}
+
+#[derive(Serialize, Debug, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationUser {
+    /// The id of the user
+    pub id: i64,
+    /// The timestamp of the last message sent by the user in the conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message_at: Option<NaiveDateTime>,
+    /// The timestamp when the user last read the conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_read_at: Option<NaiveDateTime>,
 }
 
 /// Create a conversation between the user and the AI from an initial message
@@ -92,7 +105,13 @@ pub async fn create_conversation(
         title: conversation.title,
         created_at: conversation.created_at,
         last_message_at: conversation.last_message_at,
-        users: Some([user.id].into()),
+        users: Some(
+            [ConversationUser {
+                id: user.id,
+                ..Default::default()
+            }]
+            .into(),
+        ),
     })
 }
 
