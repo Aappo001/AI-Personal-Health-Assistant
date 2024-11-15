@@ -8,6 +8,7 @@ pub mod cli;
 pub mod error;
 /// Contains logic for processing user forms saving them to the database as statistics.
 pub mod forms;
+pub mod report;
 /// Contains logic for uploading files to the server.
 pub mod upload;
 /// Contains the logic for the users side of the application. Including the routes for creating a
@@ -15,17 +16,7 @@ pub mod upload;
 pub mod users;
 /// Contains utility functions that are used throughout the application.
 pub mod utils;
-pub mod report;
 
-use std::{
-    fmt::Debug,
-    net::SocketAddr,
-    ops::Deref,
-    str::FromStr,
-    sync::{atomic::AtomicI64, Arc},
-    time::Duration,
-};
-use report::generate_pdf_report;
 use anyhow::Result;
 use axum::{
     extract::FromRef,
@@ -34,7 +25,16 @@ use axum::{
     Router,
 };
 use forms::{get_forms, get_health_form, save_health_form, update_health_form};
+use report::generate_pdf_report;
 use reqwest::{header, Client};
+use std::{
+    fmt::Debug,
+    net::SocketAddr,
+    ops::Deref,
+    str::FromStr,
+    sync::{atomic::AtomicI64, Arc},
+    time::Duration,
+};
 use tower::ServiceBuilder;
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
@@ -44,9 +44,7 @@ use tower_http::{
     LatencyUnit, ServiceBuilderExt,
 };
 
-use chat::{
-    connect_conversation, create_conversation_rest, get_ai_models, get_conversation,
-};
+use chat::{connect_conversation, create_conversation_rest, get_ai_models, get_conversation};
 use cli::Args;
 use scc::HashMap;
 use sqlx::{
@@ -57,7 +55,9 @@ use tokio::{net::TcpListener, sync::broadcast};
 use tracing::info;
 use upload::upload_file;
 use users::{
-    authenticate_user, check_email, check_username, create_user, delete_user, get_settings, get_user_by_id, get_user_by_username, get_user_from_token, search_users, update_settings, update_user
+    authenticate_user, check_email, check_username, create_user, delete_user, get_settings,
+    get_user_by_id, get_user_by_username, get_user_from_token, search_users, update_settings,
+    update_user,
 };
 
 /// The name of the package. This is defined in the `Cargo.toml` file.

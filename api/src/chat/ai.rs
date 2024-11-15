@@ -204,10 +204,12 @@ pub async fn query_model(
                     state,
                     SocketResponse::StreamData(StreamMessage {
                         conversation_id,
-                        message: Some(bytes["choices"][0]["delta"]["content"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string()),
+                        message: Some(
+                            bytes["choices"][0]["delta"]["content"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                        ),
                     }),
                 )
                 .await?;

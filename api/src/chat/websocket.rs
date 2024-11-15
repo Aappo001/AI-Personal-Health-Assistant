@@ -581,13 +581,15 @@ async fn handle_friend_request(
     accept: bool,
     user: &UserToken,
 ) -> Result<(), AppError> {
-    if user.id == other_user_id {
-        return Err(anyhow!("User cannot send friend request to themselves").into());
-    }
-
     // Check that the users are not already friends
-    let user1_id = user.id.min(other_user_id);
-    let user2_id = user.id.max(other_user_id);
+    let (user1_id, user2_id) = match user.id.cmp(&other_user_id) {
+        std::cmp::Ordering::Less => (user.id, other_user_id),
+        std::cmp::Ordering::Greater => (other_user_id, user.id),
+        std::cmp::Ordering::Equal => {
+            return Err(anyhow!("User cannot send friend request to themselves").into())
+        }
+    };
+
     if sqlx::query!(
         "SELECT user1_id FROM friendships WHERE user1_id = ? and user2_id = ?",
         user1_id,
@@ -695,14 +697,22 @@ async fn handle_friend_request(
 
     // Only send the friend request over the websocket to the receiver
     // if the receiver is online
-    if let Some(receiver) = state.user_sockets.get(&other_user_id) {
-        receiver.channel.send(friend_request.clone())?;
+    if let Some(receiver) = state
+        .user_sockets
+        .read_async(&other_user_id, |_, v| v.channel.clone())
+        .await
+    {
+        receiver.send(friend_request.clone())?;
     }
 
     // Send the friend request over the websocket to the sender
     // to let them know that the friend request was sent successfully
-    if let Some(sender) = state.user_sockets.get(&user.id) {
-        sender.channel.send(friend_request)?;
+    if let Some(sender) = state
+        .user_sockets
+        .read_async(&user.id, |_, v| v.channel.clone())
+        .await
+    {
+        sender.send(friend_request)?;
     }
     Ok(())
 }
@@ -1069,7 +1079,7 @@ async fn handle_message(
                 }
                 SocketRequest::RequestFriendRequests => {
                     let mut query = sqlx::query!(
-                        "SELECT * FROM friend_requests WHERE sender_id = ? or receiver_id = ?",
+                        "SELECT * FROM friend_requests WHERE sender_id = ? OR receiver_id = ?",
                         user.id,
                         user.id
                     )

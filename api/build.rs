@@ -34,7 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if cfg!(windows) {
                 // We know that windows paths use `\` instead of `/` as file separators and file names cannot contain `\` inside them.
                 // Therefore, every `\` we encounter is a file separator and can safely be replaced with `/`.
-                writeln!(env_file, "DATABASE_URL={}{}", PROTOCOL, db_path.display().to_string().replace('\\', "/"))?;
+                writeln!(
+                    env_file,
+                    "DATABASE_URL={}{}",
+                    PROTOCOL,
+                    db_path.display().to_string().replace('\\', "/")
+                )?;
             } else {
                 writeln!(env_file, "DATABASE_URL={}{}", PROTOCOL, db_path.display())?;
             }

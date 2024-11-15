@@ -1,16 +1,16 @@
+use crate::auth::JwtAuth;
+use crate::error::AppError;
+use crate::forms::HealthForm;
+use crate::users::UserToken;
+use crate::AppState;
 use axum::{
     extract::State,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
-use printpdf::{PdfDocument, Mm};
+use printpdf::{Mm, PdfDocument};
 use std::fs::File;
-use crate::AppState;
-use crate::auth::JwtAuth;
-use crate::users::UserToken;
-use crate::error::AppError;
 use std::io::BufWriter;
-use crate::forms::HealthForm;
 
 pub async fn generate_pdf_report(
     State(state): State<AppState>,
@@ -24,14 +24,16 @@ pub async fn generate_pdf_report(
     )
     .fetch_all(&state.pool)
     .await?;
-    
+
     // Calculate averages
     let total_entries = data.len() as f64;
     let sleep_hours_avg = data.iter().filter_map(|f| f.sleep_hours).sum::<f64>() / total_entries;
-    let exercise_duration_avg = data.iter().filter_map(|f| f.exercise_duration).sum::<f64>() / total_entries;
+    let exercise_duration_avg =
+        data.iter().filter_map(|f| f.exercise_duration).sum::<f64>() / total_entries;
 
     // Create a PDF document
-    let (doc, page1, layer1) = PdfDocument::new("User Health Report", Mm(210.0), Mm(297.0), "Layer 1");
+    let (doc, page1, layer1) =
+        PdfDocument::new("User Health Report", Mm(210.0), Mm(297.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     // Load external font
@@ -53,7 +55,10 @@ pub async fn generate_pdf_report(
         &font,
     );
     current_layer.use_text(
-        format!("Average Exercise Duration: {:.2} minutes", exercise_duration_avg),
+        format!(
+            "Average Exercise Duration: {:.2} minutes",
+            exercise_duration_avg
+        ),
         16.0,
         Mm(10.0),
         Mm(230.0),
@@ -69,8 +74,12 @@ pub async fn generate_pdf_report(
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "application/pdf"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"health_report.pdf\""),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"health_report.pdf\"",
+            ),
         ],
         buffer,
-    ).into_response())
+    )
+        .into_response())
 }

@@ -24,7 +24,14 @@ pub struct Args {
 /// This function returns the default database URL based on the operating system
 #[cfg(windows)]
 fn default_db_url() -> String {
-    format!("sqlite:///{}", data_dir().join("api.db").display().to_string().replace("\\", "/"))
+    format!(
+        "sqlite:///{}",
+        data_dir()
+            .join("api.db")
+            .display()
+            .to_string()
+            .replace("\\", "/")
+    )
 }
 
 /// This function returns the default database URL based on the operating system
