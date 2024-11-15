@@ -118,7 +118,7 @@ pub async fn query_model(
         }));
 
         let form = sqlx::query!(
-            "SELECT height, weight, sleep_hours, exercise_duration, food_intake, notes, user_statistics.modified_at, users.username FROM user_statistics JOIN users ON users.id = user_statistics.user_id WHERE user_id = ? ORDER BY user_statistics.created_at DESC LIMIT 1",
+            "SELECT height, weight, sleep_hours, exercise_duration, food_intake, notes, modified_at FROM user_statistics WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
             user.id
         )
         .fetch_optional(&state.pool)
@@ -127,7 +127,7 @@ pub async fn query_model(
         if let Some(form) = form {
             let time_diff = chrono::Utc::now().naive_utc() - form.modified_at;
             let content = format!("{} filled out a health form {} that contains the following details: {}{}{}{}{}{}{}",
-                form.username,
+                user.username,
                 match time_diff {
                     _ if time_diff.num_weeks() > 0 => format!("{} weeks ago", time_diff.num_weeks()),
                     _ if time_diff.num_days() > 0 => format!("{} days ago", time_diff.num_days()),

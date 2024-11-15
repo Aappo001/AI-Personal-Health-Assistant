@@ -106,9 +106,16 @@ pub enum SocketResponse {
         /// When the invite was created
         invited_at: NaiveDateTime,
     },
+    /// Event to inform the client that a user has left a conversation
     LeaveEvent {
         conversation_id: i64,
         user_id: i64,
+    },
+    /// Event to inform the client that a user renamed a conversation
+    RenameEvent {
+        conversation_id: i64,
+        user_id: i64,
+        name: Option<String>,
     },
     /// Friend request to be sent to the client
     FriendRequest {
@@ -163,9 +170,7 @@ enum SocketRequest {
     /// Edit a message in the conversation
     EditMessage(EditMessage),
     /// Deleted a message in the conversation
-    DeleteMessage {
-        message_id: i64,
-    },
+    DeleteMessage { message_id: i64 },
     /// Send, accept, reject, or revoke a friend request
     // Put all the friend request stuff in one enum variant
     // so its easier to handle on the frontend
@@ -186,8 +191,15 @@ enum SocketRequest {
         /// The users being invited to the conversation
         invitees: Box<[i64]>,
     },
-    LeaveConversation {
+    /// Leave a conversation
+    LeaveConversation { conversation_id: i64 },
+    /// Rename a conversation
+    RenameConversation {
         conversation_id: i64,
+        /// The new name of the conversation
+        /// If this is None, the frontend should fallback to listing the
+        /// usernames of the users in the conversation
+        name: Option<String>,
     },
     /// Request to search messages in given conversations
     /// that match the query string
@@ -195,16 +207,12 @@ enum SocketRequest {
     /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
-    ReadMessage {
-        conversation_id: i64,
-    },
+    ReadMessage { conversation_id: i64 },
     /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
     /// Request data on a conversation with the given id
-    RequestConversation {
-        conversation_id: i64,
-    },
+    RequestConversation { conversation_id: i64 },
     /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent
     RequestConversations(RequestConversation),
@@ -1105,6 +1113,21 @@ async fn handle_message(
                     )
                     .await?;
                 }
+                SocketRequest::RenameConversation {
+                    conversation_id,
+                    name,
+                } => {
+                    rename_conversation(&state.pool, conversation_id, &name, user).await?;
+                    broadcast_event(
+                        state,
+                        SocketResponse::RenameEvent {
+                            conversation_id,
+                            name,
+                            user_id: user.id,
+                        },
+                    )
+                    .await?;
+                }
             }
         }
         Message::Binary(_) => {
@@ -1225,5 +1248,33 @@ async fn leave_conversation(
             .await?;
     }
 
+    Ok(())
+}
+
+/// Renames a conversation
+async fn rename_conversation(
+    pool: &SqlitePool,
+    conversation_id: i64,
+    name: &Option<String>,
+    user: &UserToken,
+) -> Result<(), AppError> {
+    if sqlx::query!(
+        "SELECT user_id FROM user_conversations WHERE conversation_id = ? and user_id = ?",
+        conversation_id,
+        user.id
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_none()
+    {
+        return Err(anyhow!("User is not in the conversation").into());
+    }
+    sqlx::query!(
+        "UPDATE conversations SET title = ? WHERE id = ?",
+        name,
+        conversation_id
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }

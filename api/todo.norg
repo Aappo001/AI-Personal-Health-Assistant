@@ -18,10 +18,13 @@
   -- (x) Sorting search results
   -- (x) Add custom search filters (date range, user, etc.)
   - (x) Store user settings
+  - ( ) Add system messages. These are separate from user and ai messages and are used to notify users of system events.
+        Will be represented by both the user_id and ai_model_id being set to null.
+  -- ( ) Add system message types (user left, user was removed, user was added, user renamed conversation, etc.)
   - ( ) Add online indicator for users
   - ( ) Expand conversation functionality (optional/if i don't have anything else to do)
   -- ( ) Conversation ownership
   -- (x) Leaving conversation
   -- (x) Deleting conversation
-  -- ( ) Renaming conversation
+  -- (x) Renaming conversation
   -- ( ) Change Invites to Invite requests
