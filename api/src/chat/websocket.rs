@@ -1103,15 +1103,21 @@ async fn handle_message(
                     search_message(state, &message, &socket.channel).await?;
                 }
                 SocketRequest::LeaveConversation { conversation_id } => {
+                    // Remove the user from the conversation
                     leave_conversation(&state.pool, conversation_id, user.id).await?;
-                    broadcast_event(
-                        state,
-                        SocketResponse::LeaveEvent {
-                            conversation_id,
-                            user_id: user.id,
-                        },
-                    )
-                    .await?;
+
+                    let leave_event = SocketResponse::LeaveEvent {
+                        conversation_id,
+                        user_id: user.id,
+                    };
+
+                    // Send the leave event back to the user explicitly
+                    // to let them know that they have left the conversation since
+                    // `broadcast_event` will not send events to the user that left
+                    socket.channel.send(leave_event.clone())?;
+
+                    // Broadcast the user leaving the conversation to all the remaining users in the conversation
+                    broadcast_event(state, leave_event).await?;
                 }
                 SocketRequest::RenameConversation {
                     conversation_id,
