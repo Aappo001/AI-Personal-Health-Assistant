@@ -3,8 +3,14 @@ import { LoginBody } from "../types";
 import Background from "./Background";
 import { getJwtFromResponseHeader, saveJwtToLocalStorage } from "../utils/utils";
 import axios from "axios";
+import useImplicitLogin from "../store/hooks/useImplicitLogin";
+import useUserStore from "../store/hooks/useUserStore";
+import { useNavigate } from "react-router-dom";
 
 export default function Login() {
+  useImplicitLogin();
+  const userStore = useUserStore();
+  const navigate = useNavigate();
   const [login, setLogin] = useState<LoginBody>({
     username: "",
     password: "",
@@ -12,6 +18,9 @@ export default function Login() {
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
+  if (userStore.id !== -1) {
+    navigate("/");
+  }
 
   const handleSubmit = async (event: React.ChangeEvent<HTMLFormElement>) => {
     event.preventDefault();

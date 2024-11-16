@@ -15,6 +15,7 @@ export default function ChatMessagePage() {
   const updateUserMap = useUserMapDispatchContext();
   const { handleSendMessage } = useContext(WebsocketContext);
   const [message, setMessage] = useState("");
+  //@ts-expect-error setSelectedModel currently not used
   const [selectedModel, setSelectedModel] = useState(3);
   const [aiEnabled, setAiEnabled] = useState(false);
   let { id } = useParams();
@@ -25,12 +26,12 @@ export default function ChatMessagePage() {
 
   const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setMessage("");
     if (aiEnabled) {
       handleSendMessage(message, parseInt(id), selectedModel);
     } else {
       handleSendMessage(message, parseInt(id));
     }
+    setMessage("");
   };
 
   return (

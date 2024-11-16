@@ -23,7 +23,6 @@ import {
   initializeConversationId,
   pushMessage,
   pushStreamMessage,
-  replaceAiMessage,
 } from "../messageSlice";
 import { Rootstate } from "../store";
 import { Friend } from "../../types";
@@ -32,7 +31,6 @@ import { useSelector } from "react-redux";
 export default function useWebsocketSetup() {
   const socketRef = useRef<WebSocket | null>(null);
   const [loading, setLoading] = useState(true);
-  const [streamEndSignal, setStreamEndSignal] = useState(false);
   const dispatch = useAppDispatch();
   const userId = useSelector((state: Rootstate) => state.user.id);
 
@@ -64,25 +62,16 @@ export default function useWebsocketSetup() {
       switch (type) {
         case SocketResponse.Message:
           console.log(`Received message from user ${data.userId}`);
-          if (streamEndSignal) {
-            dispatch(replaceAiMessage({ id: data.conversationId, message: data.message }));
-            setStreamEndSignal(false);
-          } else {
-            dispatch(
-              pushMessage({
-                id: data.conversationId,
-                message: { userId: data.userId, content: data.message },
-              })
-            );
-          }
+
+          dispatch(
+            pushMessage({
+              id: data.conversationId,
+              message: { userId: data.userId, content: data.message, fromAi: !data.userId },
+            })
+          );
           break;
 
-        // {"type":"StreamData","conversationId":3,"message":""}
         case SocketResponse.StreamData:
-          if (data.message === null) {
-            setStreamEndSignal(true);
-            return;
-          }
           dispatch(pushStreamMessage({ id: data.conversationId, message: data.message }));
           break;
 

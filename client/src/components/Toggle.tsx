@@ -1,10 +1,9 @@
 import { SetStateAction, useState } from "react";
 
 interface Props {
-  color?: string;
   action: React.Dispatch<SetStateAction<boolean>>;
 }
-export default function Toggle({ color, action }: Props) {
+export default function Toggle({ action }: Props) {
   const [enabled, setEnabled] = useState(false);
 
   const handleChange = () => {
