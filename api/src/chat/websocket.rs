@@ -19,7 +19,7 @@ use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
 use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
@@ -1053,20 +1053,41 @@ async fn handle_message(
                     let last_message_at = request_message
                         .last_message_at
                         .unwrap_or(NaiveDateTime::MAX);
+                    // Create a helper to map rows to conversation struct easier
+                    // Have to use an unchecked query as a workaround because sqlx has a bug where
+                    // aggregate functions return the wrong type.
+                    // Reference Issue: https://github.com/launchbadge/sqlx/issues/3238
+                    // For example in this scenario, GROUP_CONCAT(user_id) should return a string
+                    // but sqlx parses it as a i64, preventing us from using it in the struct
+                    #[derive(FromRow)]
+                    struct ConversationHelper {
+                        id: i64,
+                        title: Option<String>,
+                        created_at: NaiveDateTime,
+                        last_message_at: Option<NaiveDateTime>,
+                        users: String,
+                    }
+
                     // Query the database for the conversations the user is in
                     // Use fetch instead of fetch all to stream results to the client
-                    let mut query = sqlx::query!(
-                        r#"SELECT conversations.id, conversations.title, conversations.created_at, conversations.last_message_at FROM conversations
+                    let mut query = sqlx::query_as::<Sqlite, ConversationHelper>(
+                        r#"SELECT conversations.*, GROUP_CONCAT(user_id) as users FROM conversations
+                           JOIN user_conversations 
+                           ON conversations.id = user_conversations.conversation_id 
+                           WHERE id IN 
+                           (SELECT id FROM conversations
                            JOIN user_conversations
                            ON conversations.id = user_conversations.conversation_id
                            WHERE user_id = ? AND conversations.last_message_at > ?
                            ORDER BY conversations.last_message_at DESC
-                           LIMIT ?"#,
-                        user.id,
-                        last_message_at,
-                        limit
+                           LIMIT ?) 
+                           GROUP BY id"#,
                     )
+                    .bind(user.id)
+                    .bind(last_message_at)
+                    .bind(limit)
                     .fetch(&state.pool);
+
                     while let Some(conversation) = query.next().await {
                         let conversation = conversation?;
                         socket
@@ -1076,7 +1097,16 @@ async fn handle_message(
                                 title: conversation.title,
                                 created_at: conversation.created_at,
                                 last_message_at: conversation.last_message_at,
-                                users: None,
+                                users: Some(
+                                    conversation
+                                        .users
+                                        .split(',')
+                                        .map(|u| ConversationUser {
+                                            id: u.parse::<i64>().unwrap(),
+                                            ..Default::default()
+                                        })
+                                        .collect(),
+                                ),
                             }))?;
                     }
                 }
