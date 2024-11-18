@@ -69,14 +69,13 @@ export default function useWebsocketSetup() {
           dispatch(
             pushMessage({
               id: data.conversationId,
-              message: { userId: data.userId, content: data.message, fromAi: !data.userId },
+              message: { userId: data.userId, content: data.message, fromAi: !data.userId, streaming: false },
             })
           );
           break;
 
         case SocketResponse.StreamData:
-          if (data.message === null) return;
-          dispatch(pushStreamMessage({ id: data.conversationId, message: data.message }));
+          dispatch(pushStreamMessage({ id: data.conversationId, message: data.message, querierId: data.querierId }));
           break;
 
         case SocketResponse.FriendRequest:

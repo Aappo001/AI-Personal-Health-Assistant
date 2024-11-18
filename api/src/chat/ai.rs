@@ -31,6 +31,8 @@ pub struct StreamMessage {
     /// The content of the current message
     // You must combine consecutive messages from the same role into a single message
     pub message: Option<String>,
+    /// The id of the user who initiated the ai the message
+    pub querier_id: i64,
 }
 
 /// An AI model that can be used to generate responses
@@ -217,6 +219,7 @@ pub async fn query_model(
                                 .unwrap_or("")
                                 .to_string(),
                         ),
+                        querier_id: user.id,
                     }))?;
                 }
                 // Accumulate the response content
@@ -233,6 +236,7 @@ pub async fn query_model(
         sender.send(SocketResponse::StreamData(StreamMessage {
             conversation_id,
             message: None,
+            querier_id: user.id,
         }))?;
     }
 

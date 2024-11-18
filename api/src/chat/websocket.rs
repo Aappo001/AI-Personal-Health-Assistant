@@ -138,6 +138,7 @@ pub enum SocketResponse {
     /// AI generation was canceled in the conversation
     CanceledGeneration {
         conversation_id: i64,
+        querier_id: i64,
     },
     /// Not for the client, just to cancel AI generation
     /// internally on the server
@@ -926,7 +927,7 @@ async fn handle_message(
                                     let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
                                     broadcast_event(
                                         state,
-                                        SocketResponse::CanceledGeneration { conversation_id },
+                                        SocketResponse::CanceledGeneration { conversation_id, querier_id: user.id },
                                     )
                                     .await?;
                                     // Return an error to prevent the AI model's response from being broadcasted

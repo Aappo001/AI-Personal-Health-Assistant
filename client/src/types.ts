@@ -49,5 +49,7 @@ export type ServerAppError = {
 export type Message = {
     userId: number | undefined,
     content: string,
-    fromAi?: boolean
+    fromAi?: boolean,
+    streaming?: boolean
+    querierId?: number
 }
