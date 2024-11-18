@@ -25,7 +25,7 @@ pub struct Conversation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     pub created_at: NaiveDateTime,
-    pub last_message_at: NaiveDateTime,
+    pub last_message_at: Option<NaiveDateTime>,
     /// The ids of the users in the conversation
     /// Will be None if requesting data on multiple conversations
     #[serde(skip_serializing_if = "Option::is_none")]
