@@ -26,6 +26,7 @@ import {
   initializeConversation,
   pushMessage,
   pushStreamMessage,
+  cancelStream,
 } from "../conversationSlice";
 import { Rootstate } from "../store";
 import { Friend } from "../../types";
@@ -157,6 +158,11 @@ export default function useWebsocketSetup() {
           if (userId === data.user_id) {
             dispatch(deleteConversation(data.conversation_id));
           }
+          break;
+
+        case SocketResponse.CanceledGeneration:
+          console.log(`User ${data.querierId} cancelled ai generation in conversation ${data.conversationId}`);
+          dispatch(cancelStream({ id: data.conversationId, querierId: data.querierId }));
           break;
 
         default:

@@ -81,6 +81,22 @@ const conversationSlice = createSlice({
             }
 
         },
+        // Update the streaming status of a message in a conversation
+        // This is necessary because the server will send a `CanceledGeneration` event when the a user cancels an
+        // ai response stream and will NOT send a `StreamData` event with a null message. 
+        cancelStream: (state, action: PayloadAction<{id: number, querierId: number}>) => {
+            const { id, querierId} = action.payload
+            if (!state.conversations[id]) {
+                throw new Error("Conversation Not Defined")
+            }
+            const currentConvo = state.conversations[id].messages ?? []
+
+            const msgIdx = findReversed(currentConvo, (msg) => msg.fromAi && msg.streaming && msg.querierId == querierId)
+            if (msgIdx != null) {
+                currentConvo[msgIdx].streaming = false
+                state.conversations[id].messages = [...currentConvo]
+            }
+        },
         initializeConversation: (state, action: PayloadAction<{ id: number, title?: string }>) => {
             let { id, title } = action.payload
             if (!title) {
@@ -96,5 +112,5 @@ const conversationSlice = createSlice({
     }
 })
 
-export const { pushMessage, pushStreamMessage, deleteConversation, initializeConversation } = conversationSlice.actions
+export const { pushMessage, pushStreamMessage, deleteConversation, cancelStream, initializeConversation } = conversationSlice.actions
 export default conversationSlice.reducer

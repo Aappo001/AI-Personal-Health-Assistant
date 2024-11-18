@@ -100,5 +100,6 @@ export const SocketResponse = {
     Error: "Error",
     FriendData: "FriendData",
     StreamData: "StreamData",
-    LeaveEvent: "LeaveEvent"
+    LeaveEvent: "LeaveEvent",
+    CanceledGeneration: "CanceledGeneration"
 }
