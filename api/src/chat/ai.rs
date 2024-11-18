@@ -17,8 +17,9 @@ use crate::{
     users::UserToken,
     AppState,
 };
+use tokio::sync::broadcast::Sender;
 
-use super::{broadcast_event, SendMessage, SocketResponse};
+use super::{SendMessage, SocketResponse};
 
 /// Stream data from the AI model
 // Might add a field for whether the message should trigger the AI
@@ -196,13 +197,19 @@ pub async fn query_model(
     // The accumulated response from the AI model
     let mut res_content = String::new();
 
+    // Get a sender handle to all of the connected clients in the conversation
+    // This is done, instead of calling `broadcast_event` in a loop, before streaming the response for two main reasons
+    // #1 it prevents newly connected clients from receiving a half-baked response
+    // #2 it avoids having to query the database for the conversation senders for each message in
+    // the stream, which can be very expensive for large messages and conversations
+    let senders = get_conversation_senders(state, conversation_id).await?;
+
     while let Some(mut bytes) = response.next().await {
         match bytes {
             Ok(ref mut bytes) => {
-                // Stream the individual messages to the client
-                broadcast_event(
-                    state,
-                    SocketResponse::StreamData(StreamMessage {
+                // Stream the individual messages to the clients
+                for sender in &senders {
+                    sender.send(SocketResponse::StreamData(StreamMessage {
                         conversation_id,
                         message: Some(
                             bytes["choices"][0]["delta"]["content"]
@@ -210,9 +217,8 @@ pub async fn query_model(
                                 .unwrap_or("")
                                 .to_string(),
                         ),
-                    }),
-                )
-                .await?;
+                    }))?;
+                }
                 // Accumulate the response content
                 res_content += bytes["choices"][0]["delta"]["content"]
                     .as_str()
@@ -223,15 +229,40 @@ pub async fn query_model(
     }
 
     // Broadcast the that the AI model has finished processing
-    broadcast_event(
-        state,
-        SocketResponse::StreamData(StreamMessage {
+    for sender in &senders {
+        sender.send(SocketResponse::StreamData(StreamMessage {
             conversation_id,
             message: None,
-        }),
-    )
-    .await?;
+        }))?;
+    }
+
     Ok(res_content)
+}
+
+/// Get sender handles for all the connected clients in the conversation
+async fn get_conversation_senders(
+    state: &AppState,
+    conversation_id: i64,
+) -> Result<Vec<Sender<SocketResponse>>, AppError> {
+    let user_records = sqlx::query!(
+        "SELECT user_id FROM user_conversations WHERE conversation_id = ?",
+        conversation_id
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut senders = Vec::new();
+
+    for record in user_records {
+        if let Some(sender) = state
+            .user_sockets
+            .read_async(&record.user_id, |_, v| v.channel.clone())
+            .await
+        {
+            senders.push(sender);
+        }
+    }
+    Ok(senders)
 }
 
 /// Returns all the AI models in the database
