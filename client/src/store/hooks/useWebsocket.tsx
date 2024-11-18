@@ -74,6 +74,7 @@ export default function useWebsocketSetup() {
           break;
 
         case SocketResponse.StreamData:
+          if (data.message === null) return;
           dispatch(pushStreamMessage({ id: data.conversationId, message: data.message }));
           break;
 
