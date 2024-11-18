@@ -20,7 +20,7 @@ export default function WebsocketTesting() {
   const [convoId, setConvoId] = useState(0);
   const [message, setMessage] = useState("");
   const friends = useSelector((state: Rootstate) => state.friendsState.friends);
-  const messages = useSelector((state: Rootstate) => state.messageState);
+  const conversations = useSelector((state: Rootstate) => state.messageState);
 
   return (
     <>
@@ -122,8 +122,8 @@ export default function WebsocketTesting() {
           >
             Request Friend Requests
           </button>
-          {messages.messages &&
-            Object.entries(messages.messages).map(([conversationId, content]) => (
+          {conversations &&
+            Object.entries(conversations.conversations).map(([conversationId, content]) => (
               <h1 className="text-xl text-offwhite">
                 ID: {conversationId}, Message: {JSON.stringify(content)}
               </h1>

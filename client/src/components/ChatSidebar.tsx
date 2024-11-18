@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { WebsocketContext } from "./Chat";
 import useFriendStore from "../store/hooks/useFriendStore";
 import { UserIdMap, useUserMapContext, useUserMapDispatchContext } from "./UserMapContext";
-import useMessageStore from "../store/hooks/useMessageStore";
+import useConversationStore from "../store/hooks/useConversationStore";
 
 export default function ChatSidebar() {
   const navigate = useNavigate();
@@ -12,7 +12,7 @@ export default function ChatSidebar() {
   const userMap = useUserMapContext();
   const userMapDispatch = useUserMapDispatchContext();
   const friendStore = useFriendStore();
-  const messageStore = useMessageStore();
+  const conversationStore = useConversationStore();
   const [activeConvo, setActiveConvo] = useState(-1);
   const [loading, setLoading] = useState(false);
 
@@ -61,15 +61,16 @@ export default function ChatSidebar() {
         >
           <p className="text-xl text-offwhite p-4">Friends List</p>
         </div>
-        {Object.entries(messageStore).map(([conversationId, messages]) => (
+        {Object.entries(conversationStore).map(([conversationId, conversation]) => (
           <RecentConversation
             id={parseInt(conversationId)}
+            title={conversation?.title}
             activeIndex={activeConvo}
             onClick={handleClick}
             key={`convo-${conversationId}`}
             recentMessage={
-              messages
-                ? messages[messages.length - 1].content.slice(0, 16)
+              conversation?.messages?.length
+                ? conversation.messages[conversation.messages.length - 1].content.slice(0, 16)
                 : "No previous messages"
             }
           />

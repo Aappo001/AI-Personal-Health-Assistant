@@ -16,16 +16,17 @@ import {
   wsRequestFriendRequests,
   wsSendMessage,
   wsLeaveConversation,
+  wsRenameConversation,
 } from "../../utils/ws-utils";
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
 import { addFriend, removeFriend, upgradeFriendStatus } from "../friendsSlice";
 import {
   deleteConversation,
-  initializeConversationId,
+  initializeConversation,
   pushMessage,
   pushStreamMessage,
-} from "../messageSlice";
+} from "../conversationSlice";
 import { Rootstate } from "../store";
 import { Friend } from "../../types";
 import { useSelector } from "react-redux";
@@ -112,15 +113,24 @@ export default function useWebsocketSetup() {
           break;
 
         case SocketResponse.Invite:
-          console.log(`Received Invite Message from user id ${data.inviter}`);
-          console.log(`Conversation Invite Data: ${JSON.stringify(data)}`);
-
-          dispatch(initializeConversationId(data.conversation_id));
+          console.log(`Received Invite Message from User ${data.inviter}`);
+          dispatch(initializeConversation({ id: data.conversation_id }));
           break;
 
         case SocketResponse.Conversation:
           console.log(`User present in conversation with id ${data.id}`);
-          dispatch(initializeConversationId(data.id));
+          console.log(JSON.stringify(data));
+          if (data.users) {
+            console.log(
+              `Request Conversation Data: Users = ${JSON.stringify(data.users)}, Title =  ${
+                data.title
+              }`
+            );
+            return;
+          }
+
+          dispatch(initializeConversation({ id: data.id, title: data.title }));
+          wsRequestConversation(socketRef.current, data.id);
           wsRequestMessages(socketRef.current, data.id);
           break;
 
@@ -212,6 +222,10 @@ export default function useWebsocketSetup() {
     leaveConversation: (conversationId: number) => {
       if (!socketRef.current) return;
       wsLeaveConversation(socketRef.current, conversationId);
+    },
+    renameConversation: (conversationId: number, name: string) => {
+      if (!socketRef.current) return;
+      wsRenameConversation(socketRef.current, conversationId, name);
     },
     loading,
   };

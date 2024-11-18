@@ -4,12 +4,14 @@ import { useNavigate } from "react-router-dom";
 
 interface Props {
   id: number;
+  title: string | undefined;
   recentMessage?: string;
   onClick: (index: number) => void;
   activeIndex: number;
 }
 export default function RecentConversation({
   id,
+  title = `Conversation ${id}`,
   recentMessage = "No previous messages",
   onClick,
   activeIndex,
@@ -26,14 +28,14 @@ export default function RecentConversation({
           } p-4 rounded-lg rounded-r-none w-10/12 cursor-pointer `}
           onClick={() => onClick(id)}
         >
-          <span className={` w-12 h-12 bg-lilac rounded-full`}></span>
+          <span className={` w-12 h-12 bg-lilac rounded-full flex-shrink-0`}></span>
           <div>
-            <p className="text-offwhite text-xl">Conversation {id}</p>
+            <p className="text-offwhite text-xl">{title}</p>
             <p className=" text-surface75">{recentMessage}</p>
           </div>
         </div>
         <div
-          className={`bg-main-grey flex justify-center items-center ${
+          className={`bg-main-grey flex justify-center items-center flex-shrink-0 ${
             activeIndex === id && " bg-slate-700"
           } p-4 rounded-lg rounded-l-none cursor-pointer `}
         >

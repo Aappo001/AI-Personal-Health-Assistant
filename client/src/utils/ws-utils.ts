@@ -28,7 +28,7 @@ export const wsInviteUsersToConvo = (ws: WebSocket, ids: number[]) => {
 }
 
 export const wsRequestConversation = (ws: WebSocket, id: number) => {
-    console.log("Requesting singular conversation");
+    console.log(`Requesting Conversation ${id} data`);
     ws.send(JSON.stringify({
         type: "RequestConversation",
         conversation_id: id
@@ -71,6 +71,23 @@ export const wsLeaveConversation = (ws: WebSocket, conversationId: number) => {
     ws.send(JSON.stringify({
         type: "LeaveConversation",
         conversation_id: conversationId
+    }))
+}
+
+
+    // RenameConversation {
+    //     conversation_id: i64,
+    //     /// The new name of the conversation
+    //     /// If this is None, the frontend should fallback to listing the
+    //     /// usernames of the users in the conversation
+    //     name: Option<String>,
+    // },
+
+export const wsRenameConversation = (ws: WebSocket, conversationId: number, name: string) => {
+    ws.send(JSON.stringify({
+        type: "RenameConversation",
+        conversation_id: conversationId,
+        name: name
     }))
 }
 

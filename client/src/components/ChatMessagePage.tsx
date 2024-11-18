@@ -1,28 +1,33 @@
 import { useParams } from "react-router-dom";
-import useMessageStore from "../store/hooks/useMessageStore";
 import { useUserMapContext, useUserMapDispatchContext } from "./UserMapContext";
-import { useContext, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { WebsocketContext } from "./Chat";
 import SpeechBubble from "./SpeechBubble";
 import useUserStore from "../store/hooks/useUserStore";
 import { getUserFromId } from "../utils/utils";
 import Toggle from "./Toggle";
+import useConversationStore from "../store/hooks/useConversationStore";
 
 export default function ChatMessagePage() {
   const user = useUserStore();
-  const messageStore = useMessageStore();
+  const conversationStore = useConversationStore();
   const userMap = useUserMapContext();
   const updateUserMap = useUserMapDispatchContext();
   const { handleSendMessage } = useContext(WebsocketContext);
   const [message, setMessage] = useState("");
+  const [newTitle, setNewTitle] = useState("");
+  const [editEnabled, setEditEnabled] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   //@ts-expect-error setSelectedModel currently not used
   const [selectedModel, setSelectedModel] = useState(3);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const { renameConversation } = useContext(WebsocketContext);
   let { id } = useParams();
   if (!id) {
     window.location.href = "/chat";
     return;
   }
+  const defaultTitle = `Conversation ${id}`;
 
   const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -34,11 +39,73 @@ export default function ChatMessagePage() {
     setMessage("");
   };
 
+  const handleRenameSubmit = () => {
+    renameConversation(parseInt(id), newTitle);
+    setEditEnabled(false);
+  };
+
+  useEffect(() => {
+    if (editEnabled && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [editEnabled]);
+
+  useEffect(() => {
+    setNewTitle(conversationStore[parseInt(id)]?.title ?? defaultTitle);
+    setEditEnabled(false);
+  }, [id]);
+
   return (
     <div className="flex flex-col justify-between items-center w-screen h-screen py-32">
-      <h1 className="text-6xl text-offwhite">Conversation {id}</h1>
+      <div className="flex gap-6">
+        {editEnabled ? (
+          <>
+            <input
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className="text-offwhite px-5 py-3 bg-transparent text-6xl focus:outline-none focus:outline-lilac "
+              ref={inputRef}
+            ></input>
+            <div className="flex flex-col justify-between items-center">
+              <img
+                src="/check.svg"
+                alt="Confirm"
+                height={30}
+                width={30}
+                className="cursor-pointer"
+                onClick={handleRenameSubmit}
+              />
+              <img
+                src="/x.svg"
+                alt="Cancel"
+                height={30}
+                width={30}
+                onClick={() => setEditEnabled(false)}
+                className="cursor-pointer"
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="text-6xl text-offwhite ">
+              {conversationStore[parseInt(id)]?.title}
+            </h1>
+            <img
+              src="/edit.svg"
+              alt="Edit Conversation Title"
+              width={25}
+              height={25}
+              onClick={() => {
+                setEditEnabled((prev) => !prev);
+                setNewTitle(conversationStore[parseInt(id)]?.title || "");
+              }}
+            />
+          </>
+        )}
+      </div>
       <div className=" w-2/5 flex flex-col gap-4">
-        {messageStore[parseInt(id)]?.map((message, i) => {
+        {conversationStore[parseInt(id)]?.messages?.map((message, i) => {
           if (message.userId !== undefined && userMap[message.userId] === undefined) {
             console.log("UserMap userId is undefined");
 
