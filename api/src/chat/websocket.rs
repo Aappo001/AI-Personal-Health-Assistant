@@ -1193,7 +1193,12 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
         SocketResponse::Invite {
             conversation_id, ..
         } => *conversation_id,
-        SocketResponse::CanceledGeneration { conversation_id } => *conversation_id,
+        SocketResponse::CanceledGeneration {
+            conversation_id, ..
+        } => *conversation_id,
+        SocketResponse::RenameEvent {
+            conversation_id, ..
+        } => *conversation_id,
         _ => unreachable!("uuhhh how"),
     };
     let users = sqlx::query!(
