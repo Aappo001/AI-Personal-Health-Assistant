@@ -15,11 +15,13 @@ import {
   wsRequestFriends,
   wsRequestFriendRequests,
   wsSendMessage,
+  wsLeaveConversation,
 } from "../../utils/ws-utils";
 import { requestFriendsSchema } from "../../schemas";
 import useAppDispatch from "./useAppDispatch";
 import { addFriend, removeFriend, upgradeFriendStatus } from "../friendsSlice";
 import {
+  deleteConversation,
   initializeConversationId,
   pushMessage,
   pushStreamMessage,
@@ -140,6 +142,13 @@ export default function useWebsocketSetup() {
             });
           break;
 
+        case SocketResponse.LeaveEvent:
+          console.log(`User ${data.user_id} left conversation ${data.conversation_id}`);
+          if (userId === data.user_id) {
+            dispatch(deleteConversation(data.conversation_id));
+          }
+          break;
+
         default:
           console.log(`Unknown SocketResponseType: ${type}`);
           console.log(JSON.stringify(data));
@@ -199,7 +208,10 @@ export default function useWebsocketSetup() {
       if (!socketRef.current) return;
       wsRequestFriendRequests(socketRef.current);
     },
-
+    leaveConversation: (conversationId: number) => {
+      if (!socketRef.current) return;
+      wsLeaveConversation(socketRef.current, conversationId);
+    },
     loading,
   };
 }

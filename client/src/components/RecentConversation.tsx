@@ -1,3 +1,7 @@
+import { useContext } from "react";
+import { WebsocketContext } from "./Chat";
+import { useNavigate } from "react-router-dom";
+
 interface Props {
   id: number;
   recentMessage?: string;
@@ -10,18 +14,38 @@ export default function RecentConversation({
   onClick,
   activeIndex,
 }: Props) {
+  const { leaveConversation } = useContext(WebsocketContext);
+  const navigate = useNavigate();
+
   return (
     <>
-      <div
-        className={`flex gap-3 bg-main-grey ${
-          activeIndex === id && " bg-slate-700"
-        } p-4 rounded-lg w-10/12 cursor-pointer hover:scale-105`}
-        onClick={() => onClick(id)}
-      >
-        <span className={` w-12 h-12 bg-lilac rounded-full`}></span>
-        <div>
-          <p className="text-offwhite text-xl">Conversation {id}</p>
-          <p className=" text-surface75">{recentMessage}</p>
+      <div className="flex w-10/12 hover:scale-105">
+        <div
+          className={`flex gap-3 bg-main-grey ${
+            activeIndex === id && " bg-slate-700"
+          } p-4 rounded-lg rounded-r-none w-10/12 cursor-pointer `}
+          onClick={() => onClick(id)}
+        >
+          <span className={` w-12 h-12 bg-lilac rounded-full`}></span>
+          <div>
+            <p className="text-offwhite text-xl">Conversation {id}</p>
+            <p className=" text-surface75">{recentMessage}</p>
+          </div>
+        </div>
+        <div
+          className={`bg-main-grey flex justify-center items-center ${
+            activeIndex === id && " bg-slate-700"
+          } p-4 rounded-lg rounded-l-none cursor-pointer `}
+        >
+          <img
+            src="/exit.svg"
+            height={25}
+            width={25}
+            onClick={() => {
+              leaveConversation(id);
+              navigate("/chat");
+            }}
+          />
         </div>
       </div>
     </>

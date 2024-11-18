@@ -5,7 +5,7 @@ interface Props {
 }
 
 export default function SpeechBubble({ message, from, isFromUser }: Props) {
-  const bgColor = isFromUser ? "bg-lilac" : "bg-orangey";
+  const bgColor = isFromUser ? "bg-lilac" : from === "AI" ? "bg-offwhite" : "bg-orangey";
   const spacing = isFromUser ? "self-end" : "self-start";
   return (
     <div className="flex flex-col">
@@ -16,7 +16,15 @@ export default function SpeechBubble({ message, from, isFromUser }: Props) {
       >
         {message}
       </p>
-      {!isFromUser && <p className={`text-orangey font-semibold text-base ml-3`}>{from}</p>}
+      {!isFromUser && (
+        <p
+          className={`${
+            from === "AI" ? "text-offwhite" : "text-orangey"
+          } font-semibold text-base ml-3`}
+        >
+          {from}
+        </p>
+      )}
     </div>
   );
 }

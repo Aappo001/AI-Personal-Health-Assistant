@@ -47,9 +47,14 @@ const messageSlice = createSlice({
         },
         initializeConversationId: (state, action: PayloadAction<number>) => {
             state.messages = {...state.messages, [action.payload]: undefined}
+        },
+        deleteConversation: (state, action: PayloadAction<number>) => {
+            const conversationId = action.payload
+            delete state.messages[conversationId]
+
         }
     }
 })
 
-export const { pushMessage, pushStreamMessage, initializeConversationId } = messageSlice.actions
+export const { pushMessage, pushStreamMessage, deleteConversation, initializeConversationId } = messageSlice.actions
 export default messageSlice.reducer

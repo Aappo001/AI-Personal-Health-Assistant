@@ -66,6 +66,14 @@ export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: n
         })
       );
 }
+
+export const wsLeaveConversation = (ws: WebSocket, conversationId: number) => {
+    ws.send(JSON.stringify({
+        type: "LeaveConversation",
+        conversation_id: conversationId
+    }))
+}
+
 export const SocketResponse = {
     FriendRequest: "FriendRequest",
     Message: "Message",
@@ -74,5 +82,6 @@ export const SocketResponse = {
     Conversation: "Conversation",
     Error: "Error",
     FriendData: "FriendData",
-    StreamData: "StreamData"
+    StreamData: "StreamData",
+    LeaveEvent: "LeaveEvent"
 }
