@@ -1,8 +1,8 @@
 * List of Backend Todos
   - ( ) Integrate AI features
   -- ( ) AI model querying
-  --- ( ) Requerying AI model (maybe via an empty user message?)
-  ---- Should the message be trimmed to prevent accidental whitespace only messages instead of potential queries?
+  --- (x) Requerying AI model (maybe via an empty user message?)
+  ---- (x) Should the message be trimmed to prevent accidental whitespace only messages instead of potential queries?
   --- ( ) Image processing on messages with images attached
   ---- ( ) Support for vision models (like image recognition)
   --- (x) Support for group chat queries (prepend each user's message with {user}:)

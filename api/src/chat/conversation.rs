@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -67,7 +68,15 @@ pub async fn create_conversation(
     init_message: &SendMessage,
     user: &UserToken,
 ) -> Result<Conversation, AppError> {
-    let title = init_message.message.chars().take(32).collect::<String>();
+    let title = init_message
+        .message
+        .as_ref()
+        .ok_or(anyhow!(
+            "Cannot create a conversation with an empty message"
+        ))?
+        .chars()
+        .take(32)
+        .collect::<String>();
 
     // Begin a transaction to ensure that both the conversation and the initial message are saved
     let mut tx = pool.begin().await?;

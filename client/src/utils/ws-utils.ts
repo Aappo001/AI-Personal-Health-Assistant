@@ -60,7 +60,7 @@ export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: n
       ws.send(
         JSON.stringify({
           type: "SendMessage",
-          message: message,
+          message: message.trim() ? message : null,
           conversationId: conversationId,
           aiModelId: aiModel
         })
