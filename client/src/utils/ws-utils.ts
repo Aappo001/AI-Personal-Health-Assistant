@@ -74,15 +74,6 @@ export const wsLeaveConversation = (ws: WebSocket, conversationId: number) => {
     }))
 }
 
-
-    // RenameConversation {
-    //     conversation_id: i64,
-    //     /// The new name of the conversation
-    //     /// If this is None, the frontend should fallback to listing the
-    //     /// usernames of the users in the conversation
-    //     name: Option<String>,
-    // },
-
 export const wsRenameConversation = (ws: WebSocket, conversationId: number, name: string) => {
     ws.send(JSON.stringify({
         type: "RenameConversation",
@@ -101,5 +92,6 @@ export const SocketResponse = {
     FriendData: "FriendData",
     StreamData: "StreamData",
     LeaveEvent: "LeaveEvent",
-    CanceledGeneration: "CanceledGeneration"
+    CanceledGeneration: "CanceledGeneration",
+    RenameEvent: "RenameEvent"
 }

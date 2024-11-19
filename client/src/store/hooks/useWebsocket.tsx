@@ -27,6 +27,7 @@ import {
   pushMessage,
   pushStreamMessage,
   cancelStream,
+  updateTitle,
 } from "../conversationSlice";
 import { Rootstate } from "../store";
 import { Friend } from "../../types";
@@ -72,7 +73,12 @@ export default function useWebsocketSetup() {
             dispatch(
               pushMessage({
                 id: data.conversationId,
-                message: { userId: data.userId, content: data.message, fromAi: !data.userId, streaming: false },
+                message: {
+                  userId: data.userId,
+                  content: data.message,
+                  fromAi: !data.userId,
+                  streaming: false,
+                },
               })
             );
           } catch (err) {
@@ -82,7 +88,12 @@ export default function useWebsocketSetup() {
               dispatch(
                 pushMessage({
                   id: data.conversationId,
-                  message: { userId: data.userId, content: data.message, fromAi: !data.userId, streaming: false },
+                  message: {
+                    userId: data.userId,
+                    content: data.message,
+                    fromAi: !data.userId,
+                    streaming: false,
+                  },
                 })
               );
             }
@@ -90,7 +101,13 @@ export default function useWebsocketSetup() {
           break;
 
         case SocketResponse.StreamData:
-          dispatch(pushStreamMessage({ id: data.conversationId, message: data.message, querierId: data.querierId }));
+          dispatch(
+            pushStreamMessage({
+              id: data.conversationId,
+              message: data.message,
+              querierId: data.querierId,
+            })
+          );
           break;
 
         case SocketResponse.FriendRequest:
@@ -166,8 +183,18 @@ export default function useWebsocketSetup() {
           break;
 
         case SocketResponse.CanceledGeneration:
-          console.log(`User ${data.querierId} cancelled ai generation in conversation ${data.conversationId}`);
+          console.log(
+            `User ${data.querierId} cancelled ai generation in conversation ${data.conversationId}`
+          );
           dispatch(cancelStream({ id: data.conversationId, querierId: data.querierId }));
+          break;
+
+        // {"type":"RenameEvent","conversationId":1,"userId":1,"name":"george flowberry"}
+        case SocketResponse.RenameEvent:
+          console.log(
+            `Successfully renamed Conversation ${data.conversationId} to ${data.name}`
+          );
+          dispatch(updateTitle({ id: data.conversationId, title: data.name }));
           break;
 
         default:

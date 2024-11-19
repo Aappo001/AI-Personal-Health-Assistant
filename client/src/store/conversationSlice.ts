@@ -108,9 +108,17 @@ const conversationSlice = createSlice({
             const conversationId = action.payload
             delete state.conversations[conversationId]
 
+        },
+        updateTitle: (state, action: PayloadAction<{id: number, title: string}>) => {
+            const { id, title } = action.payload
+            if(!state.conversations[id]) {
+                throw new Error("Cannot rename undefined conversation")
+            }
+            state.conversations[id].title = title
+
         }
     }
 })
 
-export const { pushMessage, pushStreamMessage, deleteConversation, cancelStream, initializeConversation } = conversationSlice.actions
+export const { pushMessage, pushStreamMessage, deleteConversation, cancelStream, initializeConversation, updateTitle } = conversationSlice.actions
 export default conversationSlice.reducer

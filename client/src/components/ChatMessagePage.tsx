@@ -39,7 +39,8 @@ export default function ChatMessagePage() {
     setMessage("");
   };
 
-  const handleRenameSubmit = () => {
+  const handleRenameSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
+    e.preventDefault();
     renameConversation(parseInt(id), newTitle);
     setEditEnabled(false);
   };
@@ -57,7 +58,7 @@ export default function ChatMessagePage() {
 
   return (
     <div className="flex flex-col justify-between items-center w-screen h-screen py-32">
-      <div className="flex gap-6">
+      <form onSubmit={handleRenameSubmit} className="flex gap-6">
         {editEnabled ? (
           <>
             <input
@@ -68,22 +69,25 @@ export default function ChatMessagePage() {
               ref={inputRef}
             ></input>
             <div className="flex flex-col justify-between items-center">
-              <img
-                src="/check.svg"
-                alt="Confirm"
-                height={30}
-                width={30}
-                className="cursor-pointer"
-                onClick={handleRenameSubmit}
-              />
-              <img
-                src="/x.svg"
-                alt="Cancel"
-                height={30}
-                width={30}
-                onClick={() => setEditEnabled(false)}
-                className="cursor-pointer"
-              />
+              <button type="submit">
+                <img
+                  src="/check.svg"
+                  alt="Confirm"
+                  height={30}
+                  width={30}
+                  className="cursor-pointer"
+                />
+              </button>
+              <button type="submit">
+                <img
+                  src="/x.svg"
+                  alt="Cancel"
+                  height={30}
+                  width={30}
+                  onClick={() => setEditEnabled(false)}
+                  className="cursor-pointer"
+                />
+              </button>
             </div>
           </>
         ) : (
@@ -103,7 +107,7 @@ export default function ChatMessagePage() {
             />
           </>
         )}
-      </div>
+      </form>
       <div className=" w-2/5 flex flex-col gap-4">
         {conversationStore[parseInt(id)]?.messages?.map((message, i) => {
           if (message.userId !== undefined && userMap[message.userId] === undefined) {
