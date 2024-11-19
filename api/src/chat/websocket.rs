@@ -98,6 +98,7 @@ pub enum SocketResponse {
     /// Stream data from the AI model
     StreamData(StreamMessage),
     /// Invite to a conversation
+    #[serde(rename_all = "camelCase")]
     Invite {
         /// The id of the conversation the user was invited to
         conversation_id: i64,
@@ -107,27 +108,25 @@ pub enum SocketResponse {
         invited_at: NaiveDateTime,
     },
     /// Event to inform the client that a user has left a conversation
-    LeaveEvent {
-        conversation_id: i64,
-        user_id: i64,
-    },
+    #[serde(rename_all = "camelCase")]
+    LeaveEvent { conversation_id: i64, user_id: i64 },
     /// Event to inform the client that a user renamed a conversation
+    #[serde(rename_all = "camelCase")]
     RenameEvent {
         conversation_id: i64,
         user_id: i64,
         name: Option<String>,
     },
     /// Friend request to be sent to the client
+    #[serde(rename_all = "camelCase")]
     FriendRequest {
         sender_id: i64,
         receiver_id: i64,
         created_at: chrono::NaiveDateTime,
         status: FriendRequestStatus,
     },
-    FriendData {
-        id: i64,
-        created_at: NaiveDateTime,
-    },
+    #[serde(rename_all = "camelCase")]
+    FriendData { id: i64, created_at: NaiveDateTime },
     /// Search results from a message query
     SearchMessage(ChatMessage),
     /// Error to inform the client
@@ -136,6 +135,7 @@ pub enum SocketResponse {
     /// in a conversation were read by a user
     ReadEvent(ReadEvent),
     /// AI generation was canceled in the conversation
+    #[serde(rename_all = "camelCase")]
     CanceledGeneration {
         conversation_id: i64,
         querier_id: i64,
@@ -171,10 +171,12 @@ enum SocketRequest {
     /// Edit a message in the conversation
     EditMessage(EditMessage),
     /// Deleted a message in the conversation
+    #[serde(rename_all = "camelCase")]
     DeleteMessage { message_id: i64 },
     /// Send, accept, reject, or revoke a friend request
     // Put all the friend request stuff in one enum variant
     // so its easier to handle on the frontend
+    #[serde(rename_all = "camelCase")]
     SendFriendRequest {
         /// The id of the user involved in the friend request
         /// This might be the sender or receiver depending on the action
@@ -185,6 +187,7 @@ enum SocketRequest {
         accept: bool,
     },
     /// Invite users to a conversation
+    #[serde(rename_all = "camelCase")]
     InviteUsers {
         /// The id of the conversation to invite the users to
         /// if this is None, a new conversation will be created
@@ -193,8 +196,10 @@ enum SocketRequest {
         invitees: Box<[i64]>,
     },
     /// Leave a conversation
+    #[serde(rename_all = "camelCase")]
     LeaveConversation { conversation_id: i64 },
     /// Rename a conversation
+    #[serde(rename_all = "camelCase")]
     RenameConversation {
         conversation_id: i64,
         /// The new name of the conversation
@@ -208,11 +213,13 @@ enum SocketRequest {
     /// Messages have been read in given conversation
     /// Does not provide user_id because the user is already authenticated
     /// Does not provide timestamp because the server will set it
+    #[serde(rename_all = "camelCase")]
     ReadMessage { conversation_id: i64 },
     /// Request the previous messages in the conversation
     /// Returns messages in order of most recent to least recent
     RequestMessages(RequestMessage),
     /// Request data on a conversation with the given id
+    #[serde(rename_all = "camelCase")]
     RequestConversation { conversation_id: i64 },
     /// Request a stream of conversations the user is in
     /// Returns conversations in order of last message sent

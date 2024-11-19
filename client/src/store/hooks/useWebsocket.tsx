@@ -81,8 +81,8 @@ export default function useWebsocketSetup() {
 
         case SocketResponse.FriendRequest:
           console.log("SocketResponse: FriendRequest");
-          const userIsSender = data.sender_id === userId;
-          let id = userIsSender ? data.receiver_id : data.sender_id;
+          const userIsSender = data.senderId === userId;
+          let id = userIsSender ? data.receiverId : data.senderId;
 
           if (data.status === "Accepted") {
             console.log("Friend Request accepted");
@@ -114,24 +114,14 @@ export default function useWebsocketSetup() {
 
         case SocketResponse.Invite:
           console.log(`Received Invite Message from User ${data.inviter}`);
-          dispatch(initializeConversation({ id: data.conversation_id }));
+          dispatch(initializeConversation({ id: data.conversationId }));
           break;
 
         case SocketResponse.Conversation:
           console.log(`User present in conversation with id ${data.id}`);
           console.log(JSON.stringify(data));
-          if (data.users) {
-            console.log(
-              `Request Conversation Data: Users = ${JSON.stringify(data.users)}, Title =  ${
-                data.title
-              }`
-            );
-            return;
-          }
 
           dispatch(initializeConversation({ id: data.id, title: data.title }));
-          wsRequestConversation(socketRef.current, data.id);
-          wsRequestMessages(socketRef.current, data.id);
           break;
 
         case SocketResponse.Error:
@@ -139,7 +129,7 @@ export default function useWebsocketSetup() {
           break;
 
         case SocketResponse.FriendData:
-          console.log(`Friends with user id ${data.id} at ${data.created_at}`);
+          console.log(`Friends with user id ${data.id} at ${data.createdAt}`);
           const privateUser = requestFriendsSchema.parse(data);
           getUserFromId(privateUser.id)
             .then((user) => {
@@ -154,9 +144,9 @@ export default function useWebsocketSetup() {
           break;
 
         case SocketResponse.LeaveEvent:
-          console.log(`User ${data.user_id} left conversation ${data.conversation_id}`);
-          if (userId === data.user_id) {
-            dispatch(deleteConversation(data.conversation_id));
+          console.log(`User ${data.userId} left conversation ${data.conversationId}`);
+          if (userId === data.userId) {
+            dispatch(deleteConversation(data.conversationId));
           }
           break;
 

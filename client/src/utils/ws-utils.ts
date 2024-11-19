@@ -2,7 +2,7 @@ export const wsSendFriendRequest = (ws: WebSocket, friendId: number, accept: boo
     ws.send(
         JSON.stringify({
           type: "SendFriendRequest",
-          other_user_id: friendId,
+          otherUserId: friendId,
           accept: accept,
         })
       );
@@ -13,7 +13,7 @@ export const wsRequestConversations = (ws: WebSocket) => {
     ws.send(JSON.stringify({
         type: "RequestConversations",
         // last_message_at: null,
-        message_num: 50
+        messageNum: 50
     }))
 }
 
@@ -21,7 +21,7 @@ export const wsInviteUsersToConvo = (ws: WebSocket, ids: number[]) => {
     console.log("Creating conversation..");
     ws.send(JSON.stringify({
         type: "InviteUsers",
-        conversation_id: null,
+        conversationId: null,
         invitees: ids
 
     }))
@@ -31,7 +31,7 @@ export const wsRequestConversation = (ws: WebSocket, id: number) => {
     console.log(`Requesting Conversation ${id} data`);
     ws.send(JSON.stringify({
         type: "RequestConversation",
-        conversation_id: id
+        conversationId: id
     }))
 }
 
@@ -70,7 +70,7 @@ export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: n
 export const wsLeaveConversation = (ws: WebSocket, conversationId: number) => {
     ws.send(JSON.stringify({
         type: "LeaveConversation",
-        conversation_id: conversationId
+        conversationId: conversationId
     }))
 }
 
@@ -86,7 +86,7 @@ export const wsLeaveConversation = (ws: WebSocket, conversationId: number) => {
 export const wsRenameConversation = (ws: WebSocket, conversationId: number, name: string) => {
     ws.send(JSON.stringify({
         type: "RenameConversation",
-        conversation_id: conversationId,
+        conversationId: conversationId,
         name: name
     }))
 }
