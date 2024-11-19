@@ -67,12 +67,26 @@ export default function useWebsocketSetup() {
         case SocketResponse.Message:
           console.log(`Received message from user ${data.userId}`);
 
-          dispatch(
-            pushMessage({
-              id: data.conversationId,
-              message: { userId: data.userId, content: data.message, fromAi: !data.userId, streaming: false },
-            })
-          );
+          // This only throws an error if the conversation is not initialized
+          try {
+            dispatch(
+              pushMessage({
+                id: data.conversationId,
+                message: { userId: data.userId, content: data.message, fromAi: !data.userId, streaming: false },
+              })
+            );
+          } catch (err) {
+            // TypeError denotes that the conversation is not initialized
+            if (err instanceof TypeError) {
+              wsRequestConversation(socketRef.current, data.conversationId);
+              dispatch(
+                pushMessage({
+                  id: data.conversationId,
+                  message: { userId: data.userId, content: data.message, fromAi: !data.userId, streaming: false },
+                })
+              );
+            }
+          }
           break;
 
         case SocketResponse.StreamData:
@@ -122,6 +136,7 @@ export default function useWebsocketSetup() {
           console.log(JSON.stringify(data));
 
           dispatch(initializeConversation({ id: data.id, title: data.title }));
+          wsRequestMessages(socketRef.current, data.id);
           break;
 
         case SocketResponse.Error:

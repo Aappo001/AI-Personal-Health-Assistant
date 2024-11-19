@@ -35,7 +35,7 @@ const conversationSlice = createSlice({
         pushMessage: (state, action: PayloadAction<{ id: number, message: Message }>) => {
             const { id, message } = action.payload
             if (!state.conversations[id]) {
-                throw new Error(`Conversation Not Defined in PushMessage ${id}: ${state.conversations[id]}`)
+                throw new TypeError("Conversation Not Defined")
             }
             const oldMessages = state.conversations[id].messages ?? []
             // When ai response is finished, server sends a message, check if we've already streamed the response 
