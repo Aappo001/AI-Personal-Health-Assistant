@@ -53,3 +53,8 @@ export type Message = {
     streaming?: boolean
     querierId?: number
 }
+
+export type Attachment = {
+    file_name: string,
+    file_data: string
+}

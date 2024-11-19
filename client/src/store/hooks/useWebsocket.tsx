@@ -63,10 +63,9 @@ export default function useWebsocketSetup() {
 
       if (!socketRef.current) return;
 
-      console.log("Received websocket response");
       switch (type) {
         case SocketResponse.Message:
-          console.log(`Received message from user ${data.userId}`);
+          console.log(`Received message from ${data.userId ? `User ${data.userId}` : "AI"}`);
 
           // This only throws an error if the conversation is not initialized
           try {
@@ -152,7 +151,6 @@ export default function useWebsocketSetup() {
 
         case SocketResponse.Conversation:
           console.log(`User present in conversation with id ${data.id}`);
-          console.log(JSON.stringify(data));
 
           dispatch(initializeConversation({ id: data.id, title: data.title }));
           wsRequestMessages(socketRef.current, data.id);

@@ -87,3 +87,8 @@ export const requestFriendsSchema = z.object({
   id: z.number(),
   createdAt: z.string()
 })
+
+export const uploadSchema = z.object({
+  message: z.string(),
+  id: z.number()
+})
