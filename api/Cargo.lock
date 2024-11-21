@@ -59,6 +59,7 @@ dependencies = [
  "jsonwebtoken",
  "macros",
  "mime",
+ "mime_guess",
  "password-auth",
  "printpdf",
  "regex",
