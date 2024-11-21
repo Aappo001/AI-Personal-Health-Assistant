@@ -1,9 +1,10 @@
 CREATE TABLE files (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    path TEXT UNIQUE NOT NULL,
-    mime TEXT UNIQUE NOT NULL DEFAULT 'application/octet-stream',
+    path TEXT NOT NULL,
+    mime TEXT NOT NULL DEFAULT 'application/octet-stream',
     -- When the file was first uploaded
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(path, mime)
 );
 
 -- Track which user uploaded which files
