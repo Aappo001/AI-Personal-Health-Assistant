@@ -28,6 +28,7 @@ use forms::{get_forms, get_health_form, save_health_form, update_health_form};
 use report::generate_pdf_report;
 use reqwest::{header, Client};
 use std::{
+    collections::HashSet,
     fmt::Debug,
     net::SocketAddr,
     ops::Deref,
@@ -81,9 +82,11 @@ pub struct AppState {
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
     user_sockets: Arc<HashMap<i64, ConnectionState>>,
-    /// Map of conversation ids to the broadcast channels of users
+    /// Map of conversation ids to the (user_id, connection_id) of users
     /// who are focused on that conversation.
-    conversation_connections: Arc<HashMap<i64, Vec<Sender<SocketResponse>>>>,
+    /// Using a RwLock to allow multiple users to be focused on the same
+    /// conversation without having to clone the underlying HashSet.
+    conversation_connections: Arc<HashMap<i64, HashSet<(i64, usize)>>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,

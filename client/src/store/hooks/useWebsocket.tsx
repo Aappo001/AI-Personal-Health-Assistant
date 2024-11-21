@@ -96,6 +96,8 @@ export default function useWebsocketSetup() {
                   },
                 })
               );
+            } else {
+              throw err;
             }
           }
           break;
