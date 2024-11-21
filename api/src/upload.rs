@@ -6,6 +6,8 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine};
 use macros::response;
+use mime::Mime;
+use mime_guess::get_mime_extensions;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -30,7 +32,7 @@ pub struct FileUpload {
 /// A file processed by the server.
 pub struct AppFile {
     data: Vec<u8>,
-    mime: infer::Type,
+    mime: Option<Mime>,
 }
 
 impl AppFile {
@@ -48,12 +50,8 @@ impl AppFile {
 
         let data = general_purpose::STANDARD.decode(encoded_data.as_bytes())?;
 
-        let mime = infer::get(&data).ok_or_else(|| {
-            AppError::UserError((
-                StatusCode::BAD_REQUEST,
-                "Unable to determine mime type".into(),
-            ))
-        })?;
+        // Attempt to infer the mime type from the file data
+        let mut mime = infer::get(&data).and_then(|x| x.mime_type().parse::<Mime>().ok());
 
         // If the mime type is provided, check if it matches the actual mime type
         if let Some(mut head) = head {
@@ -64,11 +62,11 @@ impl AppFile {
                 })?
                 .0;
             head = head.strip_prefix("data:").unwrap_or(head);
-            if head != mime.mime_type() {
-                return Err(AppError::UserError((
-                    StatusCode::BAD_REQUEST,
-                    "Mime type mismatch".into(),
-                )));
+            // Head should contain the mime type
+            if mime.is_none() {
+                // We could not determine the file type from the file data so
+                // attempt to parse the mime type from the head
+                mime = head.parse().ok();
             }
         }
         Ok(Self { data, mime })
@@ -102,13 +100,26 @@ pub async fn upload_file(
     // Calculate the hash of the file to use as the filename
     let hash = Sha256::digest(&upload_file.data);
 
-    let file_name = format!("{:x}.{}", hash, upload_file.mime.extension());
+    let file_name = format!(
+        "{:x}{}",
+        hash,
+        match upload_file
+            .mime
+            .as_ref()
+            .and_then(|mime| get_mime_extensions(mime))
+            .and_then(|exts| exts.first())
+        {
+            Some(ext) => format!(".{}", ext),
+            None => String::new(),
+        },
+    );
     match create_dir("./uploads") {
         Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
         Err(e) => return Err(e.into()),
         _ => (),
     }
-    let mime = upload_file.mime.mime_type();
+
+    let mime = upload_file.mime.map(|mime| mime.to_string());
     let path = PathBuf::from(format!("uploads/{}", file_name));
 
     let file_id = if !path.exists() {
