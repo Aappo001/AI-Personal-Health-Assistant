@@ -20,14 +20,14 @@ use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, Sender};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
     chat::{query_model, search::search_message, Conversation, ConversationUser},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
-    AppState, InnerSocket,
+    AppState, ConnectionState, InnerConnection,
 };
 
 use super::{
@@ -297,28 +297,39 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     let (mut sender, mut receiver) = stream.split();
     let user = Arc::new(user);
 
-    // Increase the number of connections the user has
-    let mut user_connections = *state
-        .user_connections
-        .entry_async(user.id)
-        .await
-        .and_modify(|entry| *entry += 1)
-        .or_insert(1);
+    let inner_connection = InnerConnection {
+        channel: broadcast::channel(10).0,
+        focused_conversation: Arc::new(AtomicI64::new(0)),
+    };
 
-    // This is the first connection the user has, so create a broadcast channel to start sending
-    if user_connections == 1 {
-        let (tx, _) = broadcast::channel(10);
-        let _ = state
-            .user_sockets
-            .insert_async(
-                user.id,
-                InnerSocket {
-                    channel: tx,
-                    ai_responding: Arc::new(AtomicI64::new(0)),
-                },
-            )
-            .await;
-    }
+    let (connection_id, connection) = match state.user_sockets.get_async(&user.id).await {
+        Some(mut conn) => {
+            let conn_id = match conn.connections.iter().position(|x| x.is_none()) {
+                Some(k) => k,
+                None => {
+                    let _ = sender.close().await;
+                    return;
+                }
+            };
+            conn.connections[conn_id] = Some(inner_connection.clone());
+            (conn_id, inner_connection)
+        }
+        None => {
+            let mut connections = [const { None }; 10];
+            connections[0] = Some(inner_connection.clone());
+            let _ = state
+                .user_sockets
+                .insert_async(
+                    user.id,
+                    ConnectionState {
+                        connections: connections.clone(),
+                        ai_responding: Arc::new(AtomicI64::new(0)),
+                    },
+                )
+                .await;
+            (0, inner_connection)
+        }
+    };
 
     let socket = state
         .user_sockets
@@ -326,8 +337,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         .await
         .unwrap();
 
-    let mut rx = socket.channel.subscribe();
-    let tx = socket.channel.clone();
+    let mut rx = connection.channel.subscribe();
+    let tx = connection.channel.clone();
 
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
@@ -368,7 +379,9 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     async move {
                         match msg {
                             Ok(msg) => {
-                                if let Err(e) = handle_message(msg, &socket, &state, &user).await {
+                                if let Err(e) =
+                                    handle_message(msg, &socket, &state, &user, &tx).await
+                                {
                                     error!("Error handling message: {}", e);
                                     let _ = tx.send(SocketResponse::Error(e.into()));
                                 }
@@ -392,15 +405,19 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 
     // Decrease the number of connections the user has
     let _ = state
-        .user_connections
+        .user_sockets
         .entry_async(user.id)
         .await
-        .and_modify(|entry| *entry -= 1);
-    user_connections = *state.user_connections.get_async(&user.id).await.unwrap();
+        .and_modify(|entry| entry.connections[connection_id] = None);
+
     // Remove the user from the connection once all the tasks are
     // complete and all user devices have disconnected
-    if user_connections == 0 {
-        state.user_connections.remove_async(&user.id).await;
+    if state
+        .user_sockets
+        .read_async(&user.id, |_, v| v.connections.clone())
+        .await
+        .is_some_and(|connections| connections.iter().all(|x| x.is_none()))
+    {
         state.user_sockets.remove_async(&user.id).await;
     }
 }
@@ -708,22 +725,26 @@ async fn handle_friend_request(
 
     // Only send the friend request over the websocket to the receiver
     // if the receiver is online
-    if let Some(receiver) = state
+    if let Some(receiver_connections) = state
         .user_sockets
-        .read_async(&other_user_id, |_, v| v.channel.clone())
+        .read_async(&other_user_id, |_, v| v.connections.clone())
         .await
     {
-        receiver.send(friend_request.clone())?;
+        for conn in receiver_connections.iter().flatten() {
+            conn.channel.send(friend_request.clone())?;
+        }
     }
 
     // Send the friend request over the websocket to the sender
     // to let them know that the friend request was sent successfully
-    if let Some(sender) = state
+    if let Some(sender_connections) = state
         .user_sockets
-        .read_async(&user.id, |_, v| v.channel.clone())
+        .read_async(&user.id, |_, v| v.connections.clone())
         .await
     {
-        sender.send(friend_request)?;
+        for conn in sender_connections.iter().flatten() {
+            conn.channel.send(friend_request.clone())?;
+        }
     }
     Ok(())
 }
@@ -835,9 +856,10 @@ async fn read_event(
 /// variant
 async fn handle_message(
     msg: Message,
-    socket: &InnerSocket,
+    socket: &ConnectionState,
     state: &AppState,
     user: &UserToken,
+    sender: &Sender<SocketResponse>,
 ) -> Result<(), AppError> {
     match msg {
         Message::Text(text) => {
@@ -924,7 +946,7 @@ async fn handle_message(
                                 _ = async {
                                     // Subscribe to the broadcast channel to listen for the
                                     // user canceling the AI generation
-                                    let mut rx = socket.channel.subscribe();
+                                    let mut rx = sender.subscribe();
                                     while let Ok(msg) = rx.recv().await {
                                         if let SocketResponse::InternalCanceledGeneration = msg {
                                             break;
@@ -1010,7 +1032,7 @@ async fn handle_message(
                     .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
-                    request_messages(&state.pool, &request_message, &socket.channel, user).await?;
+                    request_messages(&state.pool, &request_message, sender, user).await?;
                 }
                 SocketRequest::RequestConversation { conversation_id } => {
                     // Get the converation and all of the users inside the conversation in the same
@@ -1028,26 +1050,24 @@ async fn handle_message(
                     // out of the conversation and send it to the client
                     match query.iter_mut().find(|row| row.user_id == user.id) {
                         Some(conversation) => {
-                            socket
-                                .channel
-                                .send(SocketResponse::Conversation(Conversation {
-                                    id: conversation.id,
-                                    created_at: conversation.created_at,
-                                    last_message_at: conversation.last_message_at,
-                                    // Have to take the title because we can't move it from the row
-                                    // and cloning is more expensive than taking
-                                    title: conversation.title.take(),
-                                    users: Some(
-                                        query
-                                            .iter()
-                                            .map(|u| ConversationUser {
-                                                id: u.user_id,
-                                                last_message_at: u.user_last_message_at,
-                                                last_read_at: u.last_read_at,
-                                            })
-                                            .collect(),
-                                    ),
-                                }))?;
+                            sender.send(SocketResponse::Conversation(Conversation {
+                                id: conversation.id,
+                                created_at: conversation.created_at,
+                                last_message_at: conversation.last_message_at,
+                                // Have to take the title because we can't move it from the row
+                                // and cloning is more expensive than taking
+                                title: conversation.title.take(),
+                                users: Some(
+                                    query
+                                        .iter()
+                                        .map(|u| ConversationUser {
+                                            id: u.user_id,
+                                            last_message_at: u.user_last_message_at,
+                                            last_read_at: u.last_read_at,
+                                        })
+                                        .collect(),
+                                ),
+                            }))?;
                         }
                         None => {
                             return Err(
@@ -1098,24 +1118,22 @@ async fn handle_message(
 
                     while let Some(conversation) = query.next().await {
                         let conversation = conversation?;
-                        socket
-                            .channel
-                            .send(SocketResponse::Conversation(Conversation {
-                                id: conversation.id,
-                                title: conversation.title,
-                                created_at: conversation.created_at,
-                                last_message_at: conversation.last_message_at,
-                                users: Some(
-                                    conversation
-                                        .users
-                                        .split(',')
-                                        .map(|u| ConversationUser {
-                                            id: u.parse::<i64>().unwrap(),
-                                            ..Default::default()
-                                        })
-                                        .collect(),
-                                ),
-                            }))?;
+                        sender.send(SocketResponse::Conversation(Conversation {
+                            id: conversation.id,
+                            title: conversation.title,
+                            created_at: conversation.created_at,
+                            last_message_at: conversation.last_message_at,
+                            users: Some(
+                                conversation
+                                    .users
+                                    .split(',')
+                                    .map(|u| ConversationUser {
+                                        id: u.parse::<i64>().unwrap(),
+                                        ..Default::default()
+                                    })
+                                    .collect(),
+                            ),
+                        }))?;
                     }
                 }
                 SocketRequest::RequestFriends => {
@@ -1132,7 +1150,7 @@ async fn handle_message(
                         } else {
                             friendship.user1_id
                         };
-                        socket.channel.send(SocketResponse::FriendData {
+                        sender.send(SocketResponse::FriendData {
                             id: friend_id,
                             created_at: friendship.created_at,
                         })?;
@@ -1148,7 +1166,7 @@ async fn handle_message(
 
                     while let Some(friend_request) = query.next().await {
                         let friend_request = friend_request?;
-                        socket.channel.send(SocketResponse::FriendRequest {
+                        sender.send(SocketResponse::FriendRequest {
                             sender_id: friend_request.sender_id,
                             receiver_id: friend_request.receiver_id,
                             created_at: friend_request.created_at,
@@ -1161,17 +1179,15 @@ async fn handle_message(
                     // is not running for the current user
                     let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
                     if conversation_id > 0 {
-                        socket
-                            .channel
-                            .send(SocketResponse::InternalCanceledGeneration)?;
+                        sender.send(SocketResponse::InternalCanceledGeneration)?;
                     } else {
-                        socket.channel.send(SocketResponse::Error(
+                        sender.send(SocketResponse::Error(
                             AppError::from(anyhow!("No ai response to cancel")).into(),
                         ))?;
                     }
                 }
                 SocketRequest::SearchMessages(message) => {
-                    search_message(state, &message, &socket.channel).await?;
+                    search_message(state, &message, sender).await?;
                 }
                 SocketRequest::LeaveConversation { conversation_id } => {
                     // Remove the user from the conversation
@@ -1185,7 +1201,9 @@ async fn handle_message(
                     // Send the leave event back to the user explicitly
                     // to let them know that they have left the conversation since
                     // `broadcast_event` will not send events to the user that left
-                    socket.channel.send(leave_event.clone())?;
+                    for connection in socket.connections.iter().flatten() {
+                        connection.channel.send(leave_event.clone())?;
+                    }
 
                     // Broadcast the user leaving the conversation to all the remaining users in the conversation
                     broadcast_event(state, leave_event).await?;
@@ -1246,13 +1264,15 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
     .fetch_all(&state.pool)
     .await?;
     for user in users {
-        if let Some(user) = state
+        if let Some(user_connections) = state
             .user_sockets
-            .read_async(&user.user_id, |_, v| v.channel.clone())
+            .read_async(&user.user_id, |_, v| v.connections.clone())
             .await
         {
-            if let Err(e) = user.send(msg.clone()) {
-                warn!("Error broadcasting event: {}", e);
+            for connection in user_connections.iter().flatten() {
+                if let Err(e) = connection.channel.send(msg.clone()) {
+                    warn!("Error broadcasting event: {}", e);
+                }
             }
         }
     }

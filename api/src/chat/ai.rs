@@ -258,12 +258,14 @@ async fn get_conversation_senders(
     let mut senders = Vec::new();
 
     for record in user_records {
-        if let Some(sender) = state
+        if let Some(user_connections) = state
             .user_sockets
-            .read_async(&record.user_id, |_, v| v.channel.clone())
+            .read_async(&record.user_id, |_, v| v.connections.clone())
             .await
         {
-            senders.push(sender);
+            for sender in user_connections.into_iter().flatten() {
+                senders.push(sender.channel);
+            }
         }
     }
     Ok(senders)

@@ -44,14 +44,16 @@ use tower_http::{
     LatencyUnit, ServiceBuilderExt,
 };
 
-use chat::{connect_conversation, create_conversation_rest, get_ai_models, get_conversation};
+use chat::{
+    connect_conversation, create_conversation_rest, get_ai_models, get_conversation, SocketResponse,
+};
 use cli::Args;
 use scc::HashMap;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
-use tokio::{net::TcpListener, sync::broadcast};
+use tokio::{net::TcpListener, sync::broadcast::Sender};
 use tracing::info;
 use upload::upload_file;
 use users::{
@@ -78,10 +80,10 @@ pub struct AppState {
     client: reqwest::Client,
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
-    user_sockets: Arc<HashMap<i64, InnerSocket>>,
-    /// This is a map that keeps track of how many connections each user has. We use this to
-    /// determine when we should remove the user from the `user_sockets` map.
-    user_connections: Arc<HashMap<i64, usize>>,
+    user_sockets: Arc<HashMap<i64, ConnectionState>>,
+    /// Map of conversation ids to the broadcast channels of users
+    /// who are focused on that conversation.
+    conversation_connections: Arc<HashMap<i64, Vec<Sender<SocketResponse>>>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
@@ -125,12 +127,10 @@ impl Stemmer {
     }
 }
 
+/// All the websocket connections for a user.
 #[derive(Clone, Debug)]
-/// The inner state of a user's socket connection.
-pub struct InnerSocket {
-    /// The sender half of the broadcast channel that we use to send messages to all
-    /// connections made by the same user
-    channel: broadcast::Sender<chat::SocketResponse>,
+pub struct ConnectionState {
+    connections: [Option<InnerConnection>; 10],
     /// A flag that contains the conversation id of the conversation that the AI is currently
     /// generating messages for.
     /// This uses 0 as a sentinel value to represent that the AI is not currently generating
@@ -139,6 +139,18 @@ pub struct InnerSocket {
     /// option is to use `Arc<AtomicPtr<Option<i64>>>` but that requires unsafe code to
     /// manage the pointer.
     ai_responding: Arc<AtomicI64>,
+}
+
+/// The inner state of a user's connection to the server.
+#[derive(Clone, Debug)]
+pub struct InnerConnection {
+    /// The sender channel for sending messages to the user.
+    /// Each individual connection from the user has its own sender channel.
+    /// Cap the number of connections to 10 to prevent abuse and simplify the implementation.
+    channel: Sender<SocketResponse>,
+    /// The id of the last conversation a user Requested using `SocketRequest::RequestConversation`
+    /// This is assumed to be the last conversation the user was focused on.
+    focused_conversation: Arc<AtomicI64>,
 }
 
 impl AppState {
@@ -158,7 +170,7 @@ impl AppState {
                 .build()
                 .expect("Failed to build reqwest client"),
             user_sockets: Arc::new(HashMap::new()),
-            user_connections: Arc::new(HashMap::new()),
+            conversation_connections: Arc::new(HashMap::new()),
             pool,
             stemmer: Arc::new(Stemmer(rust_stemmers::Stemmer::create(
                 rust_stemmers::Algorithm::English,
