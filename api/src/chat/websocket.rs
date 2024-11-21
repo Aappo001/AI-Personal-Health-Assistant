@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     sync::{
         atomic::{AtomicI64, Ordering},
@@ -17,10 +18,10 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::NaiveDateTime;
-use futures::{stream::SplitSink, SinkExt, StreamExt};
+use futures::{stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
-use tokio::sync::broadcast::{self, Sender};
+use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
 use crate::{
@@ -140,9 +141,17 @@ pub enum SocketResponse {
         conversation_id: i64,
         querier_id: i64,
     },
+    /// A user's online status
+    /// Emitted when a user's status has changed inside a focused conversation
+    /// or when explicitly requested by the client
+    #[serde(rename_all = "camelCase")]
+    UserStatus { user_id: i64, status: OnlineStatus },
     /// Not for the client, just to cancel AI generation
     /// internally on the server
     InternalCanceledGeneration,
+    /// Not for the client, just to cancel focus
+    /// internally on the server
+    InternalCanceledFocus,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -150,6 +159,12 @@ pub enum FriendRequestStatus {
     Pending,
     Accepted,
     Rejected,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub enum OnlineStatus {
+    Online,
+    Offline,
 }
 
 // The WebSocket API is a bit different than the REST API
@@ -297,12 +312,14 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     let (mut sender, mut receiver) = stream.split();
     let user = Arc::new(user);
 
+    // Create the connection state for the user
     let inner_connection = InnerConnection {
         channel: broadcast::channel(10).0,
         focused_conversation: Arc::new(AtomicI64::new(0)),
     };
 
     let (connection_id, connection) = match state.user_sockets.get_async(&user.id).await {
+        // The user has other active connections
         Some(mut conn) => {
             let conn_id = match conn.connections.iter().position(|x| x.is_none()) {
                 Some(k) => k,
@@ -314,6 +331,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
             conn.connections[conn_id] = Some(inner_connection.clone());
             (conn_id, inner_connection)
         }
+        // First time the user has connected to the server
         None => {
             let mut connections = [const { None }; 10];
             connections[0] = Some(inner_connection.clone());
@@ -327,6 +345,13 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     },
                 )
                 .await;
+            // Attempt to let other users know that the user is online
+            // Do it in a separate task so that the connection isn't blocked
+            tokio::spawn({
+                let state = state.clone();
+                let user = user.clone();
+                async move { emit_user_status(&state, &user, OnlineStatus::Online).await }
+            });
             (0, inner_connection)
         }
     };
@@ -338,7 +363,6 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         .unwrap();
 
     let mut rx = connection.channel.subscribe();
-    let tx = connection.channel.clone();
 
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
@@ -367,23 +391,32 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
     let mut receive_task = tokio::spawn({
         let state = state.clone();
         let user = user.clone();
+        let connection = connection.clone();
         async move {
             // Keep receiving messages until the connection is closed
             while let Some(msg) = receiver.next().await {
                 // Spawn a new task for each message received
                 tokio::spawn({
-                    let tx = tx.clone();
+                    let connection = connection.clone();
                     let user = user.clone();
                     let socket = socket.clone();
                     let state = state.clone();
                     async move {
                         match msg {
                             Ok(msg) => {
-                                if let Err(e) =
-                                    handle_message(msg, &socket, &state, &user, &tx).await
+                                if let Err(e) = handle_message(
+                                    msg,
+                                    &state,
+                                    &user,
+                                    &socket,
+                                    &connection,
+                                    connection_id,
+                                )
+                                .await
                                 {
                                     error!("Error handling message: {}", e);
-                                    let _ = tx.send(SocketResponse::Error(e.into()));
+                                    let _ =
+                                        connection.channel.send(SocketResponse::Error(e.into()));
                                 }
                             }
                             Err(e) => {
@@ -410,15 +443,25 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
         .await
         .and_modify(|entry| entry.connections[connection_id] = None);
 
+    // Remove the current connection's focus from the conversation
+    if let Some(mut set) = state
+        .conversation_connections
+        .get_async(&connection.focused_conversation.load(Ordering::Relaxed))
+        .await
+    {
+        set.get_mut().remove(&(user.id, connection_id));
+    }
+
     // Remove the user from the connection once all the tasks are
     // complete and all user devices have disconnected
     if state
         .user_sockets
-        .read_async(&user.id, |_, v| v.connections.clone())
+        .remove_if_async(&user.id, |v| v.connections.iter().all(|x| x.is_none()))
         .await
-        .is_some_and(|connections| connections.iter().all(|x| x.is_none()))
+        .is_some()
     {
-        state.user_sockets.remove_async(&user.id).await;
+        // Attempt to let other users know that the user is offline
+        let _ = emit_user_status(&state, &user, OnlineStatus::Offline).await;
     }
 }
 
@@ -463,6 +506,55 @@ async fn request_messages(
     while let Some(message) = query.next().await {
         tx.send(SocketResponse::Message(message?))?;
     }
+    Ok(())
+}
+
+/// Emit a change in the user x's online status to users who are focused
+/// on a conversation that user x is in
+async fn emit_user_status(
+    state: &AppState,
+    user: &UserToken,
+    status: OnlineStatus,
+) -> Result<(), AppError> {
+    // Collect all of the conversations the user is in
+    let conversations: HashSet<i64> = sqlx::query!(
+        "SELECT DISTINCT conversation_id FROM user_conversations WHERE user_id = ?",
+        user.id
+    )
+    .fetch(&state.pool)
+    .map(|row| row.map(|x| x.conversation_id))
+    .try_collect()
+    .boxed()
+    .await?;
+
+    // For each conversation the user is in
+    for conversation in conversations.iter() {
+        // Find the user_id and connection_id of connections
+        // that are focused on the conversation
+        let Some(connections) = state
+            .conversation_connections
+            .read_async(conversation, |_, v| v.clone())
+            .await
+        else {
+            continue;
+        };
+        // Get the sender handle for each connection
+        for (user_id, connection_id) in connections.iter() {
+            let Some(Some(conn)) = state
+                .user_sockets
+                .read_async(user_id, |_, v| v.connections[*connection_id].clone())
+                .await
+            else {
+                continue;
+            };
+            // Send the updated status
+            conn.channel.send(SocketResponse::UserStatus {
+                user_id: user.id,
+                status: status.clone(),
+            })?;
+        }
+    }
+
     Ok(())
 }
 
@@ -856,10 +948,11 @@ async fn read_event(
 /// variant
 async fn handle_message(
     msg: Message,
-    socket: &ConnectionState,
     state: &AppState,
     user: &UserToken,
-    sender: &Sender<SocketResponse>,
+    socket: &ConnectionState,
+    inner: &InnerConnection,
+    connection_id: usize,
 ) -> Result<(), AppError> {
     match msg {
         Message::Text(text) => {
@@ -946,7 +1039,7 @@ async fn handle_message(
                                 _ = async {
                                     // Subscribe to the broadcast channel to listen for the
                                     // user canceling the AI generation
-                                    let mut rx = sender.subscribe();
+                                    let mut rx = inner.channel.subscribe();
                                     while let Ok(msg) = rx.recv().await {
                                         if let SocketResponse::InternalCanceledGeneration = msg {
                                             break;
@@ -1032,7 +1125,7 @@ async fn handle_message(
                     .await?;
                 }
                 SocketRequest::RequestMessages(request_message) => {
-                    request_messages(&state.pool, &request_message, sender, user).await?;
+                    request_messages(&state.pool, &request_message, &inner.channel, user).await?;
                 }
                 SocketRequest::RequestConversation { conversation_id } => {
                     // Get the converation and all of the users inside the conversation in the same
@@ -1050,30 +1143,111 @@ async fn handle_message(
                     // out of the conversation and send it to the client
                     match query.iter_mut().find(|row| row.user_id == user.id) {
                         Some(conversation) => {
-                            sender.send(SocketResponse::Conversation(Conversation {
-                                id: conversation.id,
-                                created_at: conversation.created_at,
-                                last_message_at: conversation.last_message_at,
-                                // Have to take the title because we can't move it from the row
-                                // and cloning is more expensive than taking
-                                title: conversation.title.take(),
-                                users: Some(
-                                    query
-                                        .iter()
-                                        .map(|u| ConversationUser {
-                                            id: u.user_id,
-                                            last_message_at: u.user_last_message_at,
-                                            last_read_at: u.last_read_at,
-                                        })
-                                        .collect(),
-                                ),
-                            }))?;
+                            inner
+                                .channel
+                                .send(SocketResponse::Conversation(Conversation {
+                                    id: conversation.id,
+                                    created_at: conversation.created_at,
+                                    last_message_at: conversation.last_message_at,
+                                    // Have to take the title because we can't move it from the row
+                                    // and cloning is more expensive than taking
+                                    title: conversation.title.take(),
+                                    users: Some(
+                                        query
+                                            .iter()
+                                            .map(|u| ConversationUser {
+                                                id: u.user_id,
+                                                last_message_at: u.user_last_message_at,
+                                                last_read_at: u.last_read_at,
+                                            })
+                                            .collect(),
+                                    ),
+                                }))?;
                         }
                         None => {
                             return Err(
                                 anyhow!("User is not in conversation: {}", conversation_id).into()
                             )
                         }
+                    }
+
+                    // Cancel focusing a prevoius conversation if the user switches to another conversation
+                    // Sent in case the user switches to another conversation before the update finishes
+                    let _ = inner.channel.send(SocketResponse::InternalCanceledFocus);
+
+                    // Update the focused conversation for the current connect
+                    // after sending the conversation data to prevent blocking
+                    // the connection
+                    //
+                    let last_focused_conversation =
+                        inner.focused_conversation.load(Ordering::SeqCst);
+                    // No need to update the focused conversation for the current connection
+                    if last_focused_conversation == conversation_id {
+                        return Ok(());
+                    }
+
+                    // Use `tokio::select!` to allow cancelling the focus event
+                    // if the user switches to another conversation before the update finishes
+                    // which can ocur if the user switches to another conversation before
+                    // the attempt to get the map bucket is blocking. Using cancelling we
+                    // can prevent race conditions.
+                    tokio::select! {
+                        (remove_handle, insert_handle) = async {
+                            (if last_focused_conversation != 0 {
+                                state
+                                    .conversation_connections
+                                    .get_async(&last_focused_conversation)
+                                    .await
+                            } else {
+                                None
+                            },
+                            state
+                                .conversation_connections
+                                .get_async(&conversation_id)
+                                .await)
+                        } => {
+                            // Handles for removing the user from the previous conversation
+                            // and inserting them into the new conversation were successfully obtained
+                            // so update the focused conversation for the current connection
+                            inner
+                                .focused_conversation
+                                .store(conversation_id, Ordering::SeqCst);
+                            // Remove the user from the previous conversation
+                            if let Some(mut set) = remove_handle {
+                                set.get_mut().remove(&(user.id, connection_id));
+                                if set.is_empty() {
+                                    state
+                                        .conversation_connections
+                                        .remove(&last_focused_conversation);
+                                }
+                            }
+                            // Insert the user into the new conversation
+                            match insert_handle{
+                                Some(mut entry) => {
+                                    entry.get_mut().insert((user.id, connection_id));
+                                }
+                                None => {
+                                    let _ = state
+                                        .conversation_connections
+                                        .insert_async(
+                                            conversation_id,
+                                            HashSet::from([(user.id, connection_id)]),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                        _ = async {
+                            // Allow canceling the focus event if the user switches to another conversation
+                            // before the update finishes. This can happen if the user switches to another
+                            // while the attempt to get the map bucket is blocking.
+                            let mut rx = inner.channel.subscribe();
+                            while let Ok(msg) = rx.recv().await {
+                                if let SocketResponse::InternalCanceledFocus = msg {
+                                    break;
+                                }
+                            }
+                        } => {}
                     }
                 }
                 SocketRequest::RequestConversations(request_message) => {
@@ -1118,22 +1292,24 @@ async fn handle_message(
 
                     while let Some(conversation) = query.next().await {
                         let conversation = conversation?;
-                        sender.send(SocketResponse::Conversation(Conversation {
-                            id: conversation.id,
-                            title: conversation.title,
-                            created_at: conversation.created_at,
-                            last_message_at: conversation.last_message_at,
-                            users: Some(
-                                conversation
-                                    .users
-                                    .split(',')
-                                    .map(|u| ConversationUser {
-                                        id: u.parse::<i64>().unwrap(),
-                                        ..Default::default()
-                                    })
-                                    .collect(),
-                            ),
-                        }))?;
+                        inner
+                            .channel
+                            .send(SocketResponse::Conversation(Conversation {
+                                id: conversation.id,
+                                title: conversation.title,
+                                created_at: conversation.created_at,
+                                last_message_at: conversation.last_message_at,
+                                users: Some(
+                                    conversation
+                                        .users
+                                        .split(',')
+                                        .map(|u| ConversationUser {
+                                            id: u.parse::<i64>().unwrap(),
+                                            ..Default::default()
+                                        })
+                                        .collect(),
+                                ),
+                            }))?;
                     }
                 }
                 SocketRequest::RequestFriends => {
@@ -1150,7 +1326,7 @@ async fn handle_message(
                         } else {
                             friendship.user1_id
                         };
-                        sender.send(SocketResponse::FriendData {
+                        inner.channel.send(SocketResponse::FriendData {
                             id: friend_id,
                             created_at: friendship.created_at,
                         })?;
@@ -1166,7 +1342,7 @@ async fn handle_message(
 
                     while let Some(friend_request) = query.next().await {
                         let friend_request = friend_request?;
-                        sender.send(SocketResponse::FriendRequest {
+                        inner.channel.send(SocketResponse::FriendRequest {
                             sender_id: friend_request.sender_id,
                             receiver_id: friend_request.receiver_id,
                             created_at: friend_request.created_at,
@@ -1179,15 +1355,17 @@ async fn handle_message(
                     // is not running for the current user
                     let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
                     if conversation_id > 0 {
-                        sender.send(SocketResponse::InternalCanceledGeneration)?;
+                        inner
+                            .channel
+                            .send(SocketResponse::InternalCanceledGeneration)?;
                     } else {
-                        sender.send(SocketResponse::Error(
+                        inner.channel.send(SocketResponse::Error(
                             AppError::from(anyhow!("No ai response to cancel")).into(),
                         ))?;
                     }
                 }
                 SocketRequest::SearchMessages(message) => {
-                    search_message(state, &message, sender).await?;
+                    search_message(state, &message, &inner.channel).await?;
                 }
                 SocketRequest::LeaveConversation { conversation_id } => {
                     // Remove the user from the conversation
@@ -1298,7 +1476,7 @@ async fn send_message(
     // All responses should be serialized to JSON
     // and sent as Text
     match msg {
-        SocketResponse::InternalCanceledGeneration => {}
+        SocketResponse::InternalCanceledGeneration | SocketResponse::InternalCanceledFocus => {}
         _ => {
             sender
                 .send(Message::Text(sonic_rs::to_string(&msg).unwrap()))

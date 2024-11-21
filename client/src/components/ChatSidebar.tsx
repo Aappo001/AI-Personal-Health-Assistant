@@ -27,6 +27,7 @@ export default function ChatSidebar() {
       setActiveConvo(id);
       navigate(`/chat/messages/${id}`);
     }
+    ws.requestConversation(id);
   };
 
   useEffect(() => {
