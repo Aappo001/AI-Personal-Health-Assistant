@@ -115,14 +115,15 @@ export const uploadAttachment = async (attachment: Attachment) => {
     throw new Error("Error uploading file")
   }
 
-  const result = uploadSchema.safeParse(await response.json())
-  if(!result.success) {
-    throw new Error(`Error uploading file: ${result.error}`)
-  }
-  console.log(`Id for the newly uploaded file: ${result.data.id}`);
-  
-  
+  const result = await response.json()
 
+  // const result = uploadSchema.safeParse(await response.json())
+  // if(!result.success) {
+  //   throw new Error(`Error parsing file: ${result.error}`)
+  // }
+  console.log(JSON.stringify(result));
+  
+  console.log(`Id for the newly uploaded file: ${result.id}`);
 }
 
 const mainColors = [

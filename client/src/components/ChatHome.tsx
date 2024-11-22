@@ -1,18 +1,18 @@
-import { useContext, useRef, useState } from "react";
+import { useContext, useState } from "react";
 import useUserStore from "../store/hooks/useUserStore";
 import { WebsocketContext } from "./Chat";
 import FileAttachment from "./FileAttachment";
-import { Attachment } from "../types";
 import { uploadAttachment } from "../utils/utils";
+import useFileAttachment from "../store/hooks/useFileAttachment";
 
 export const ChatHome = () => {
   const user = useUserStore();
   const [query, setQuery] = useState("");
   //@ts-expect-error awaiting implementation
   const [selectedModel, setSelectedModel] = useState(3);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [inputFile, setInputFile] = useState<Attachment>({ file_name: "", file_data: "" });
   const ws = useContext(WebsocketContext);
+  const { attachment, hiddenFileInput, handleFileUploadClick, resetFile } =
+    useFileAttachment();
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
@@ -21,39 +21,10 @@ export const ChatHome = () => {
   const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
     ws.handleSendMessage(query, undefined, selectedModel);
-    if (inputFile.file_data) {
-      uploadAttachment(inputFile);
+    if (attachment.file_data) {
+      uploadAttachment(attachment);
     }
     setQuery("");
-  };
-
-  const handleFileUploadClick = () => {
-    if (!inputRef.current) {
-      throw new Error("Input ref is null, idk how this happened");
-    }
-    inputRef.current.click();
-  };
-
-  const handleFileClear = () => {
-    if (!inputRef.current) {
-      throw new Error("Input ref is null, idk how this happened");
-    }
-    inputRef.current.value = "";
-    setInputFile({ file_name: "", file_data: "" });
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    console.log(JSON.stringify(e.target.files?.[0]));
-
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      console.log(`Result: ${reader.result}`);
-      setInputFile({ file_name: file.name, file_data: reader.result as string });
-    };
-
-    reader.readAsDataURL(file);
   };
 
   return (
@@ -64,14 +35,14 @@ export const ChatHome = () => {
             ? `Hello ${user.username}, how can I help you today`
             : "How can I help you today?"}
         </h1>
-        {inputFile.file_name && (
-          <FileAttachment fileName={inputFile.file_name} handleFileClear={handleFileClear} />
+        {attachment.file_name && (
+          <FileAttachment fileName={attachment.file_name} handleFileClear={resetFile} />
         )}
         <form
           onSubmit={handleSubmit}
           className="bg-[#363131] w-1/2 focus:outline-none rounded-full text-offwhite flex justify-between"
         >
-          <input type="file" className=" hidden" ref={inputRef} onChange={handleFileChange} />
+          {hiddenFileInput()}
           <img
             src="/plus-circle.svg"
             className="ml-3 cursor-pointer"
