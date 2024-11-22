@@ -472,9 +472,9 @@ pub async fn update_user(
             .await?;
         let mime_regex = regex::Regex::new(r"^image/.*$").unwrap();
         // Check if the file is uploaded by the user and is an image
-        match query {
+        match query.and_then(|val| val.mime) {
             // File is uploaded by the user and is an image
-            Some(val) if mime_regex.is_match(&val.mime) => (),
+            Some(val) if mime_regex.is_match(&val) => (),
             // File is uploaded by the user but is not an image
             Some(_) => {
                 return Err(AppError::UserError((

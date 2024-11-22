@@ -8,6 +8,9 @@
 	If a message comes in after the conversations are organized, the list of conversations should be reorganized to reflect this
   - ( ) Message searching
 	This should be done by adding a search bar to the right side of the chat page
+    -- ( ) Clicking on a search result should jump to the message in a conversation
+  -- ( ) Search filtering (e.g. by date, by user)
+  - ( ) System messages (e.g. user joined, user left)
   - ( ) User profile images
   - ( ) Online status indicators
         Look should be similar to the one used in slack or discord
