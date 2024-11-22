@@ -1,0 +1,28 @@
+* List of Frontend Todos
+  - ( ) Integrate AI features
+  -- ( ) AI Response cancellation support
+	 This should be done by replacing the send button with a cancel button if the querier id is equal to the logged in user id
+  -- ( ) AI model selection
+  	Model selection should distinguish between conversational models and vision models
+  - ( ) Sort conversations by the last message sent
+	If a message comes in after the conversations are organized, the list of conversations should be reorganized to reflect this
+  - ( ) Message searching
+	This should be done by adding a search bar to the right side of the chat page
+  - ( ) User profile images
+  - ( ) Online status indicators
+        Look should be similar to the one used in slack or discord
+  - ( ) Add support for querying past the first 50 conversations
+	Currently the frontend only queries the 50 most recently updated conversations
+  - ( ) Add support for sending read events to the backend
+        Read events should be sent in a conversations when a user scrolls down to the last message in the conversation
+  - ( ) Add support for properly sending user forms
+	Right now, the user forms don't send the data to the backend
+  - ( ) Support for downloading data from previously filled user forms
+  - ( ) Polish UI Make the UI more visually appealing
+  -- ( ) Fix text overflowing out of the message boxes
+  -- ( ) Skin scroll bar to fit the rest of the UI
+  -- ( ) Make conversations scroll inside their own box instead of scrolling the entire page
+  - ( ) Message editing
+  - ( ) Message deletion
+  - ( ) Updating user profile images
+  - ( ) Querying past the 50 most recent messages in a conversation
