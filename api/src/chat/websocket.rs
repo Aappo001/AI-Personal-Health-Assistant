@@ -1490,7 +1490,11 @@ async fn send_message(
 async fn get_chat_message(pool: &SqlitePool, message_id: i64) -> Result<ChatMessage, AppError> {
     Ok(sqlx::query_as!(
         ChatMessage,
-        "SELECT messages.id, message, user_id, conversation_id, messages.created_at, ai_model_id, file_name, modified_at, files.path as file_path FROM messages LEFT JOIN files ON messages.id = files.id WHERE messages.id = ?",
+        "SELECT messages.id, message, user_id, conversation_id, messages.created_at,
+        ai_model_id, file_name, modified_at, files.path as file_path FROM messages
+        LEFT JOIN files
+        ON messages.id = files.id
+        WHERE messages.id = ?",
         message_id
     )
     .fetch_one(pool)

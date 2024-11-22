@@ -10,7 +10,11 @@ CREATE TABLE messages (
     user_id INTEGER,
     ai_model_id INTEGER,
     file_id INTEGER,
-    file_name TEXT,
+    -- File name is stored in the messages table to allow for
+    -- the same file to be uploaded multiple times but 
+    -- attached to messages with different names.
+    -- Should only be set if file_id is not null
+    file_name TEXT CHECK(file_id IS NOT NULL OR file_name IS NULL),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     modified_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     conversation_id INTEGER NOT NULL,

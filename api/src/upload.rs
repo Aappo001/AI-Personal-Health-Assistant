@@ -23,8 +23,6 @@ use crate::{
 /// A file to be uploaded to the server.
 #[derive(Deserialize)]
 pub struct FileUpload {
-    /// The name of the file to be stored.
-    file_name: Option<String>,
     /// Base64 encoded file data.
     file_data: String,
 }
@@ -113,39 +111,35 @@ pub async fn upload_file(
             None => String::new(),
         },
     );
+
+    // Create the uploads directory if it does not
+    // already exist and ignore the error if it does
     match create_dir("./uploads") {
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => (),
-        Err(e) => return Err(e.into()),
+        Err(e) if e.kind() != ErrorKind::AlreadyExists => return Err(e.into()),
         _ => (),
     }
 
     let mime = upload_file.mime.map(|mime| mime.to_string());
     let path = PathBuf::from(format!("uploads/{}", file_name));
 
-    let file_id = if !path.exists() {
+    if !path.exists() {
         let mut file = File::create(&path).await?;
         file.write_all(&upload_file.data).await?;
-        sqlx::query!(
+    }
+
+    let file_id = sqlx::query!(
             "INSERT INTO files (path, mime) VALUES (?, ?) ON CONFLICT DO UPDATE SET path = path RETURNING id",
             file_name,
             mime
         )
         .fetch_one(&state)
         .await?
-        .id
-    } else {
-        sqlx::query!("SELECT id FROM files WHERE path = ?", file_name)
-            .fetch_one(&state)
-            .await?
-            .id
-    };
+        .id;
 
-    let upload_name = upload_data.file_name.unwrap_or(file_name);
     let id = sqlx::query!(
-            "INSERT INTO file_uploads (file_id, user_id, name) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET file_id = file_id RETURNING file_id as id",
+            "INSERT INTO file_uploads (file_id, user_id) VALUES (?, ?) ON CONFLICT DO UPDATE SET file_id = file_id RETURNING file_id as id",
             file_id,
-            user.id,
-            upload_name
+            user.id
         )
         .fetch_one(&state)
         .await?.id;
