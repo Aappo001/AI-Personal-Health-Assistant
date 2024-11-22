@@ -126,7 +126,7 @@ pub async fn upload_file(
         let mut file = File::create(&path).await?;
         file.write_all(&upload_file.data).await?;
         sqlx::query!(
-            "INSERT INTO files (path, mime) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING id",
+            "INSERT INTO files (path, mime) VALUES (?, ?) ON CONFLICT DO UPDATE SET path = path RETURNING id",
             file_name,
             mime
         )
@@ -142,7 +142,7 @@ pub async fn upload_file(
 
     let upload_name = upload_data.file_name.unwrap_or(file_name);
     let id = sqlx::query!(
-            "INSERT INTO file_uploads (file_id, user_id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING file_id as id",
+            "INSERT INTO file_uploads (file_id, user_id, name) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET file_id = file_id RETURNING file_id as id",
             file_id,
             user.id,
             upload_name
