@@ -26,38 +26,38 @@ dotenvy = "0.15.7"
 [dependencies]
 anyhow = "1.0.89"
 argon2 = "0.5.3"
-axum = { version = "0.7", features = ["ws", "macros"] }
 axum-macros = "0.4.2"
+axum = { version = "0.7", features = ["ws", "macros"] }
 base64 = "0.22.1"
+bytes = "1.8.0"
 chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.17", features = ["derive"] }
-scc = "2.2.2"
+console-subscriber = "0.4.1"
 dirs = "5.0.1"
 dotenvy = "0.15.7"
 dotenvy_macro = "0.15.7"
 futures = "0.3.30"
+infer = "0.16.0"
 jsonwebtoken = "9.3.0"
 macros = { path = "./macros" }
+mime = "0.3.17"
+mime_guess = "2.0.5"
 password-auth = "1.0.0"
 printpdf = "0.7.0"
 regex = "1.10.6"
-reqwest = { version = "0.12.8", features = ["json", "stream"] }
 reqwest-streams = { version = "0.8.0", features = ["json"] }
+reqwest = { version = "0.12.8", features = ["json", "stream"] }
+rust-stemmers = "1.2.0"
+scc = "2.2.2"
 serde = "1.0.210"
+serde_json = "1.0.132"
+sha2 = "0.10.8"
 sonic-rs = "0.3.14"
 sqlx = { version = "0.8.2", features = ["runtime-tokio", "macros", "sqlite", "chrono", "json"] }
-tokio = { version = "1.40.0", features = ["full", "tracing"] }
 tokio-tungstenite = "0.24.0"
+tokio = { version = "1.40.0", features = ["full", "tracing"] }
+tower = "0.5.1"
 tower-http = { version = "0.6.1", features = ["trace", "fs", "cors", "compression-br", "compression-gzip", "compression-zstd", "sensitive-headers", "util", "timeout", "set-header"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 validator = { version = "0.18.1", features = ["derive"] }
-console-subscriber = "0.4.1"
-rust-stemmers = "1.2.0"
-mime = "0.3.17"
-bytes = "1.8.0"
-sha2 = "0.10.8"
-infer = "0.16.0"
-tower = "0.5.1"
-serde_json = "1.0.132"
-mime_guess = "2.0.5"
