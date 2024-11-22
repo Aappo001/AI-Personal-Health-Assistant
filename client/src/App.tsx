@@ -69,7 +69,7 @@ function App() {
         </div>
         <div className="w-full flex justify-center mt-5">
           <Link
-            to="/health-form"
+            to="/healthform"
             className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-red-500 hover:text-main-black border-red-500 text-red-500 m-2 rounded-full leading-relaxed"
           >
             User Health Form
