@@ -493,7 +493,7 @@ async fn request_messages(
         ChatMessage,
         r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id, file_name, files.path as file_path FROM messages
         JOIN conversations ON conversations.id = messages.conversation_id 
-        LEFT JOIN files ON messages.id = files.id
+        LEFT JOIN files ON messages.file_id = files.id
         WHERE conversations.id = ? AND messages.id < ?
         ORDER BY last_message_at DESC
         LIMIT ?"#,
@@ -1497,7 +1497,7 @@ async fn get_chat_message(pool: &SqlitePool, message_id: i64) -> Result<ChatMess
         "SELECT messages.id, message, user_id, conversation_id, messages.created_at,
         ai_model_id, file_name, modified_at, files.path as file_path FROM messages
         LEFT JOIN files
-        ON messages.id = files.id
+        ON messages.file_id = files.id
         WHERE messages.id = ?",
         message_id
     )

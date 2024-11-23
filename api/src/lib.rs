@@ -19,14 +19,17 @@ pub mod utils;
 
 use anyhow::Result;
 use axum::{
-    extract::FromRef,
+    extract::{DefaultBodyLimit, FromRef},
     http::{HeaderName, HeaderValue},
     routing::{delete, get, post, put},
     Router,
 };
 use forms::{get_forms, get_health_form, save_health_form, update_health_form};
 use report::generate_pdf_report;
-use reqwest::{header, Client};
+use reqwest::{
+    header::{self, CONTENT_ENCODING, CONTENT_LENGTH},
+    Client,
+};
 use std::{
     collections::HashSet,
     fmt::Debug,
@@ -207,9 +210,16 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .allow_headers([
             HeaderName::from_static("authorization"),
             HeaderName::from_static("content-type"),
+            HeaderName::from_static("content-length"),
             HeaderName::from_static("accept"),
         ])
-        .expose_headers([HeaderName::from_static("authorization")]);
+        .expose_headers([
+            HeaderName::from_static("authorization"),
+            HeaderName::from_static("content-type"),
+            CONTENT_ENCODING,
+            CONTENT_LENGTH,
+            HeaderName::from_static("accept"),
+        ]);
 
     let sensitive_headers: Arc<[_]> = [header::AUTHORIZATION, header::COOKIE].into();
 
@@ -258,6 +268,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/account/settings", post(update_settings))
         // Upload a profile image
         .route("/account/upload", post(upload_profile_image))
+        .layer(DefaultBodyLimit::max(10_100_000))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
         .route("/chat/models", get(get_ai_models))
@@ -273,6 +284,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/forms", get(get_forms))
         // Used to upload files to the server
         .route("/upload", post(upload_file))
+        .layer(DefaultBodyLimit::max(10_100_000))
         // Used to upload files to the server
         .nest_service("/upload/", ServeDir::new("uploads"))
         // .route("/chat/query_model/*model_name", get(query_model))
