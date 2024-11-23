@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     fs::create_dir,
     io::{BufWriter, ErrorKind},
     path::PathBuf,
@@ -194,8 +195,8 @@ pub async fn upload_profile_image(
 
     let original_image = image::load_from_memory(&upload_file.data)?;
 
-    let cropped_image =
-        crop_from_center(&original_image, 512, 512).resize(512, 512, FilterType::Lanczos3);
+    // Crop the image into a square and resize it to 512x512
+    let cropped_image = crop_square(&original_image).resize(512, 512, FilterType::Lanczos3);
 
     // Calculate the hash of the file to use as the filename
     let hash = Sha256::digest(cropped_image.as_bytes());
@@ -255,16 +256,16 @@ pub async fn upload_profile_image(
         .into_response())
 }
 
-// Crop an image using the center as the anchor point
-fn crop_from_center(image: &DynamicImage, width: u32, height: u32) -> DynamicImage {
+// Crop an image into a square using the center as the anchor point
+fn crop_square(image: &DynamicImage) -> DynamicImage {
     let (iwidth, iheight) = image.dimensions();
-    let (center_x, center_y) = (iwidth / 2, iheight / 2);
+    let min_dim = iwidth.min(iheight);
+    let (x, y) = match iwidth.cmp(&iheight) {
+        Ordering::Less => (0, (iheight - min_dim) / 2),
+        Ordering::Greater => ((iwidth - min_dim) / 2, 0),
+        Ordering::Equal => (0, 0),
+    };
     // This function from the image crate crops the image with the top left corner as the anchor point
     // So translate the center to the top left corner
-    image.crop_imm(
-        center_x - (width / 2),
-        center_y - (height / 2),
-        width,
-        height,
-    )
+    image.crop_imm(x, y, min_dim, min_dim)
 }

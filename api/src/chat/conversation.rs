@@ -168,7 +168,7 @@ pub async fn get_conversation(
     if sqlx::query!(
         r#"SELECT id FROM conversations
             JOIN user_conversations ON user_conversations.conversation_id = conversations.id
-            WHERE id = ? and user_id = ?"#,
+            WHERE id = ? AND user_id = ?"#,
         conversation_id,
         user.id
     )
@@ -180,11 +180,11 @@ pub async fn get_conversation(
     }
     let res = &sqlx::query_as!(
             ChatMessage,
-            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id, file_name, files.path as file_path FROM messages
-            JOIN conversations ON conversations.id = messages.conversation_id 
+            r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id,
+            file_name, files.path as file_path FROM messages
             LEFT JOIN files ON files.id = messages.file_id
-            WHERE conversations.id = ? 
-            ORDER BY last_message_at DESC"#,
+            WHERE conversation_id = ? 
+            ORDER BY messages.created_at DESC"#,
             conversation_id,
         )
         .fetch_all(&pool)
