@@ -9,6 +9,7 @@ import Toggle from "./Toggle";
 import useConversationStore from "../store/hooks/useConversationStore";
 import useFileAttachment from "../store/hooks/useFileAttachment";
 import FileAttachment from "./FileAttachment";
+import MessageAttachment from "./MessageAttachment";
 import { UploadAttachment } from "../types";
 
 export default function ChatMessagePage() {
@@ -46,6 +47,7 @@ export default function ChatMessagePage() {
       };
     }
     handleSendMessage(message, parseInt(id), aiEnabled ? selectedModel : undefined, messageAttachment);
+    resetFile();
     setMessage("");
   };
 
@@ -126,21 +128,23 @@ export default function ChatMessagePage() {
             getUserFromId(message.userId)
               .then((unknownUser) => {
                 if (!unknownUser || !message.userId) return;
-                updateUserMap({ ...userMap, [message.userId]: unknownUser.username });
+                updateUserMap({ ...userMap, [message.userId]: unknownUser });
               })
               .catch((err) => {
                 console.log(`Error getting user: ${err}`);
               });
           }
 
-          const from = message.userId ? userMap[message.userId] : "AI";
+          const from = message.userId ? userMap[message.userId].username : "AI";
           return (
             <SpeechBubble
               message={message.content}
               from={from}
               isFromUser={message.userId === user.id}
               key={`${message.userId}-${i}`}
-            />
+            >
+              {message.filePath && <MessageAttachment fileName={message.fileName} filePath={`http://localhost:3000/api/upload/${message.filePath}`} />}
+            </SpeechBubble>
           );
         })}
       </div>

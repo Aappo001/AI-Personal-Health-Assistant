@@ -20,7 +20,8 @@ export const publicUserSchema = z.object({
   id: z.number(),
   username: z.string(),
   firstName: z.string(),
-  lastName: z.string()
+  lastName: z.string(),
+  imagePath: z.string().optional()
 })
 
 export const implicitLoginSchema = sessionUserSchema

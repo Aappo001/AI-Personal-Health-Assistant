@@ -50,8 +50,10 @@ export type Message = {
     userId: number | undefined,
     content: string,
     fromAi?: boolean,
-    streaming?: boolean
-    querierId?: number
+    streaming?: boolean,
+    querierId?: number,
+    filePath?: string,
+    fileName?: string
 }
 
 export type FileUpload = {

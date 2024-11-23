@@ -4,6 +4,8 @@ import { WebsocketContext } from "./Chat";
 import FileAttachment from "./FileAttachment";
 import { uploadAttachment } from "../utils/utils";
 import useFileAttachment from "../store/hooks/useFileAttachment";
+import { UploadAttachment } from "../types";
+import { wsSendMessage } from "../utils/ws-utils";
 
 export const ChatHome = () => {
   const user = useUserStore();
@@ -18,12 +20,18 @@ export const ChatHome = () => {
     setQuery(e.target.value);
   };
 
-  const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
-    ws.handleSendMessage(query, undefined, selectedModel);
+    let file_id: number | undefined;
+    let messageAttachment: UploadAttachment | undefined;
     if (attachment.fileData) {
-      uploadAttachment(attachment);
+      file_id = await uploadAttachment(attachment);
+      messageAttachment = {
+        id: file_id,
+        name: attachment.fileName,
+      };
     }
+    ws.handleSendMessage(query, undefined, selectedModel, messageAttachment);
     setQuery("");
   };
 

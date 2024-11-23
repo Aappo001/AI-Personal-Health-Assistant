@@ -66,6 +66,7 @@ export default function useWebsocketSetup() {
       switch (type) {
         case SocketResponse.Message:
           console.log(`Received message from ${data.userId ? `User ${data.userId}` : "AI"}`);
+          console.log(data);
 
           // This only throws an error if the conversation is not initialized
           try {
@@ -76,6 +77,8 @@ export default function useWebsocketSetup() {
                   userId: data.userId,
                   content: data.message,
                   fromAi: !data.userId,
+                  filePath: data.filePath,
+                  fileName: data.fileName,
                   streaming: false,
                 },
               })
@@ -91,6 +94,8 @@ export default function useWebsocketSetup() {
                     userId: data.userId,
                     content: data.message,
                     fromAi: !data.userId,
+                    filePath: data.filePath,
+                    fileName: data.fileName,
                     streaming: false,
                   },
                 })
