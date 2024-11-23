@@ -56,7 +56,7 @@ use sqlx::{
 };
 use tokio::{net::TcpListener, sync::broadcast::Sender};
 use tracing::info;
-use upload::upload_file;
+use upload::{upload_file, upload_profile_image};
 use users::{
     authenticate_user, check_email, check_username, create_user, delete_user, get_settings,
     get_user_by_id, get_user_by_username, get_user_from_token, search_users, update_settings,
@@ -256,6 +256,8 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         .route("/account/settings", get(get_settings))
         // Update user settings
         .route("/account/settings", post(update_settings))
+        // Upload a profile image
+        .route("/account/upload", post(upload_profile_image))
         .route("/chat/:id/messages", get(get_conversation))
         .route("/chat/create", post(create_conversation_rest))
         .route("/chat/models", get(get_ai_models))
