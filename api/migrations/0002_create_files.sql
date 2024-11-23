@@ -2,6 +2,10 @@ CREATE TABLE files (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     path TEXT NOT NULL,
     mime TEXT,
+    -- Whether this file is or can be used as a profile image
+    -- Used to know if the file is cropped properly
+    -- to be displayed as a profile image
+    profile_image BOOLEAN DEFAULT FALSE,
     -- When the file was first uploaded
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(path, mime)

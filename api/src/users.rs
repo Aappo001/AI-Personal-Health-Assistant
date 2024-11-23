@@ -467,29 +467,7 @@ pub async fn update_user(
     }
 
     if let Some(image) = user_data.image_id {
-        let query = sqlx::query!("SELECT id, mime FROM files JOIN file_uploads ON files.id = file_uploads.file_id WHERE id = ? AND user_id = ?", image, user.id)
-            .fetch_optional(&pool)
-            .await?;
-        let mime_regex = regex::Regex::new(r"^image/.*$").unwrap();
-        // Check if the file is uploaded by the user and is an image
-        match query.and_then(|val| val.mime) {
-            // File is uploaded by the user and is an image
-            Some(val) if mime_regex.is_match(&val) => (),
-            // File is uploaded by the user but is not an image
-            Some(_) => {
-                return Err(AppError::UserError((
-                    StatusCode::BAD_REQUEST,
-                    "File id is not an image".into(),
-                )))
-            }
-            // File was not uploaded by the user
-            None => {
-                return Err(AppError::UserError((
-                    StatusCode::NOT_FOUND,
-                    "Image not found".into(),
-                )))
-            }
-        }
+        check_image(&pool, image, user.id).await?;
     }
 
     // Update the user in the database
@@ -527,6 +505,25 @@ pub async fn update_user(
         AppJson(response!("User successfully updated", user)),
     )
         .into_response())
+}
+
+async fn check_image(pool: &SqlitePool, image_id: i64, user_id: i64) -> Result<(), AppError> {
+    let query = sqlx::query!("SELECT id, profile_image FROM files JOIN file_uploads ON files.id = file_uploads.file_id WHERE id = ? AND user_id = ?", image_id, user_id)
+        .fetch_optional(pool)
+        .await?;
+    // Check if the file is uploaded by the user and is an image uploaded as a profile image
+    match query.and_then(|row| row.profile_image) {
+        Some(val) if val => Ok(()),
+        Some(_) => Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "File id is not a profile image".into(),
+        ))),
+        // File was not uploaded by the user
+        None => Err(AppError::UserError((
+            StatusCode::NOT_FOUND,
+            "Image not found".into(),
+        ))),
+    }
 }
 
 pub async fn delete_user(
