@@ -1178,7 +1178,6 @@ async fn handle_message(
                     // Update the focused conversation for the current connect
                     // after sending the conversation data to prevent blocking
                     // the connection
-                    //
                     let last_focused_conversation =
                         inner.focused_conversation.load(Ordering::SeqCst);
                     // No need to update the focused conversation for the current connection
@@ -1189,40 +1188,44 @@ async fn handle_message(
                     // Use `tokio::select!` to allow cancelling the focus event
                     // if the user switches to another conversation before the update finishes
                     // which can ocur if the user switches to another conversation before
-                    // the attempt to get the map bucket is blocking. Using cancelling we
-                    // can prevent race conditions.
+                    // the attempt to get the map bucket is blocking.
+                    // Using canceling the focus event instead of aborting the task
                     tokio::select! {
-                        (remove_handle, insert_handle) = async {
-                            (if last_focused_conversation != 0 {
-                                state
+                        _ = async {
+                            // This implementation is not atomic. This means that a conversation
+                            // could be removed without another one being added. Ideally
+                            // this would be done in a single atomic operation but
+                            // all attempts I've tried have caused deadlocks or just
+                            // straight up don't work.
+
+                            // Remove the user from the previous conversation if they were in one
+                            if last_focused_conversation != 0 {
+                                if let Some(mut set) = state
                                     .conversation_connections
                                     .get_async(&last_focused_conversation)
-                                    .await
-                            } else {
-                                None
-                            },
-                            state
-                                .conversation_connections
-                                .get_async(&conversation_id)
-                                .await)
-                        } => {
-                            // Handles for removing the user from the previous conversation
-                            // and inserting them into the new conversation were successfully obtained
-                            // so update the focused conversation for the current connection
+                                .await {
+                                    set.get_mut().remove(&(user.id, connection_id));
+                                    if set.is_empty() {
+                                        // Drop the set to prevent deadlock
+                                        // This will deadlock if the set is not dropped
+                                        drop(set);
+                                        state
+                                            .conversation_connections
+                                            .remove(&last_focused_conversation);
+                                    }
+                                }
+                            }
+
+                            // Update the focused conversation for the current connection
                             inner
                                 .focused_conversation
                                 .store(conversation_id, Ordering::SeqCst);
-                            // Remove the user from the previous conversation
-                            if let Some(mut set) = remove_handle {
-                                set.get_mut().remove(&(user.id, connection_id));
-                                if set.is_empty() {
-                                    state
-                                        .conversation_connections
-                                        .remove(&last_focused_conversation);
-                                }
-                            }
+
                             // Insert the user into the new conversation
-                            match insert_handle{
+                            match state
+                                .conversation_connections
+                                .get_async(&conversation_id)
+                            .await {
                                 Some(mut entry) => {
                                     entry.get_mut().insert((user.id, connection_id));
                                 }
@@ -1233,9 +1236,10 @@ async fn handle_message(
                                             conversation_id,
                                             HashSet::from([(user.id, connection_id)]),
                                         )
-                                        .await;
+                                    .await;
                                 }
                             }
+                        } => {
                         }
                         _ = async {
                             // Allow canceling the focus event if the user switches to another conversation
