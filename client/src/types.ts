@@ -54,7 +54,12 @@ export type Message = {
     querierId?: number
 }
 
-export type Attachment = {
-    file_name: string,
-    file_data: string
+export type FileUpload = {
+    fileName: string,
+    fileData: string
+}
+
+export type UploadAttachment = {
+    id: number,
+    name: string
 }

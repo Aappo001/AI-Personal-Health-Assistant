@@ -21,7 +21,7 @@ export const ChatHome = () => {
   const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
     ws.handleSendMessage(query, undefined, selectedModel);
-    if (attachment.file_data) {
+    if (attachment.fileData) {
       uploadAttachment(attachment);
     }
     setQuery("");
@@ -35,8 +35,8 @@ export const ChatHome = () => {
             ? `Hello ${user.username}, how can I help you today`
             : "How can I help you today?"}
         </h1>
-        {attachment.file_name && (
-          <FileAttachment fileName={attachment.file_name} handleFileClear={resetFile} />
+        {attachment.fileName && (
+          <FileAttachment fileName={attachment.fileName} handleFileClear={resetFile} />
         )}
         <form
           onSubmit={handleSubmit}

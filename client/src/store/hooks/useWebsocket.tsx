@@ -30,7 +30,7 @@ import {
   updateTitle,
 } from "../conversationSlice";
 import { Rootstate } from "../store";
-import { Friend } from "../../types";
+import { Friend, UploadAttachment } from "../../types";
 import { useSelector } from "react-redux";
 
 export default function useWebsocketSetup() {
@@ -210,12 +210,12 @@ export default function useWebsocketSetup() {
   }, []);
 
   return {
-    handleSendMessage: (message: string, conversationId?: number, aiModel?: number) => {
+    handleSendMessage: (message: string, conversationId?: number, aiModel?: number, attachment?: UploadAttachment) => {
       if (!socketRef.current) {
         console.error(`Tried to send message ${message} while WS is null`);
         return;
       }
-      wsSendMessage(socketRef.current, message, conversationId, aiModel);
+      wsSendMessage(socketRef.current, message, conversationId, aiModel, attachment);
     },
 
     sendFriendRequest: (username: string, accept: boolean) => {

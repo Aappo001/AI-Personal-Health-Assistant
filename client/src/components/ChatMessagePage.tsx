@@ -9,6 +9,7 @@ import Toggle from "./Toggle";
 import useConversationStore from "../store/hooks/useConversationStore";
 import useFileAttachment from "../store/hooks/useFileAttachment";
 import FileAttachment from "./FileAttachment";
+import { UploadAttachment } from "../types";
 
 export default function ChatMessagePage() {
   const user = useUserStore();
@@ -35,14 +36,16 @@ export default function ChatMessagePage() {
 
   const handleSubmit = async (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (attachment.file_data) {
-      await uploadAttachment(attachment);
+    let file_id: number | undefined;
+    let messageAttachment: UploadAttachment | undefined;
+    if (attachment.fileData) {
+      file_id = await uploadAttachment(attachment);
+      messageAttachment = {
+        id: file_id,
+        name: attachment.fileName,
+      };
     }
-    if (aiEnabled) {
-      handleSendMessage(message, parseInt(id), selectedModel);
-    } else {
-      handleSendMessage(message, parseInt(id));
-    }
+    handleSendMessage(message, parseInt(id), aiEnabled ? selectedModel : undefined, messageAttachment);
     setMessage("");
   };
 
@@ -141,8 +144,8 @@ export default function ChatMessagePage() {
           );
         })}
       </div>
-      {attachment.file_name && (
-        <FileAttachment fileName={attachment.file_name} handleFileClear={resetFile} />
+      {attachment.fileName && (
+        <FileAttachment fileName={attachment.fileName} handleFileClear={resetFile} />
       )}
       <form
         onSubmit={handleSubmit}

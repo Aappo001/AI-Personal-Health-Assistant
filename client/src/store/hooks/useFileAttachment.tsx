@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import { Attachment } from "../../types";
+import { FileUpload } from "../../types";
 
 export default function useFileAttachment() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [attachment, setAttachment] = useState<Attachment>({ file_name: "", file_data: "" });
+  const [attachment, setAttachment] = useState<FileUpload>({ fileName: "", fileData: "" });
 
   const handleFileUploadClick = () => {
     if (!fileInputRef.current) {
@@ -17,7 +17,7 @@ export default function useFileAttachment() {
       throw new Error("Input ref is null, idk how this happened");
     }
     fileInputRef.current.value = "";
-    setAttachment({ file_name: "", file_data: "" });
+    setAttachment({ fileName: "", fileData: "" });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -28,7 +28,7 @@ export default function useFileAttachment() {
     const reader = new FileReader();
     reader.onloadend = () => {
       console.log(`Result: ${reader.result}`);
-      setAttachment({ file_name: file.name, file_data: reader.result as string });
+      setAttachment({ fileName: file.name, fileData: reader.result as string });
     };
 
     reader.readAsDataURL(file);

@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from "axios";
-import { implicitLoginSchema, publicUserSchema, uploadSchema } from "../schemas";
-import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser, Attachment } from "../types";
+import { implicitLoginSchema, publicUserSchema } from "../schemas";
+import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser, FileUpload } from "../types";
 
 export async function RegisterUser(
   user: RegisterBody
@@ -98,7 +98,7 @@ export const getUserFromId = async (id: number): Promise<PublicUser | undefined>
   return user.data
 }
 
-export const uploadAttachment = async (attachment: Attachment) => {
+export const uploadAttachment = async (attachment: FileUpload): Promise<number> => {
   const jwt = getJwt()
   if(!jwt) throw new Error("User is unauthorized: No JWT")
 
@@ -121,9 +121,8 @@ export const uploadAttachment = async (attachment: Attachment) => {
   // if(!result.success) {
   //   throw new Error(`Error parsing file: ${result.error}`)
   // }
-  console.log(JSON.stringify(result));
-  
-  console.log(`Id for the newly uploaded file: ${result.id}`);
+
+  return result.id
 }
 
 const mainColors = [

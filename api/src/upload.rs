@@ -22,6 +22,7 @@ use crate::{
 
 /// A file to be uploaded to the server.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileUpload {
     /// Base64 encoded file data.
     file_data: String,
