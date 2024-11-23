@@ -1,10 +1,15 @@
-use std::{fs::create_dir, io::ErrorKind, path::PathBuf};
+use std::{
+    fs::create_dir,
+    io::{BufWriter, ErrorKind},
+    path::PathBuf,
+};
 
 use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose, Engine};
+use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat};
 use macros::response;
 use mime::Mime;
 use mime_guess::get_mime_extensions;
@@ -149,4 +154,117 @@ pub async fn upload_file(
         AppJson(response!("File uploaded successfully", id)),
     )
         .into_response())
+}
+
+// Used to upload specifically profile images
+pub async fn upload_profile_image(
+    State(state): State<SqlitePool>,
+    JwtAuth(user): JwtAuth<UserToken>,
+    AppJson(upload_data): AppJson<FileUpload>,
+) -> Result<Response, AppError> {
+    // Check if the base64 encoded file data is too large
+    if upload_data.file_data.len() > 10_000_000 {
+        return Err(AppError::UserError((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "File size too large".into(),
+        )));
+    }
+
+    // Decode the base64 encoded data
+    let upload_file = AppFile::from_base64(&upload_data.file_data)?;
+
+    // Check if the file size is too large
+    if upload_file.data.len() > 10_000_000 {
+        return Err(AppError::UserError((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "File size too large".into(),
+        )));
+    }
+
+    if !upload_file
+        .mime
+        .as_ref()
+        .is_some_and(|mime| mime.type_() == mime::IMAGE)
+    {
+        return Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "Invalid file type".into(),
+        )));
+    }
+
+    let original_image = image::load_from_memory(&upload_file.data)?;
+
+    let cropped_image =
+        crop_from_center(&original_image, 512, 512).resize(512, 512, FilterType::Lanczos3);
+
+    // Calculate the hash of the file to use as the filename
+    let hash = Sha256::digest(cropped_image.as_bytes());
+
+    let file_name = format!(
+        "{:x}{}",
+        hash,
+        match upload_file
+            .mime
+            .as_ref()
+            .and_then(|mime| get_mime_extensions(mime))
+            .and_then(|exts| exts.first())
+        {
+            Some(ext) => format!(".{}", ext),
+            None => String::new(),
+        },
+    );
+
+    // Create the uploads directory if it does not
+    // already exist and ignore the error if it does
+    match create_dir("./uploads") {
+        Err(e) if e.kind() != ErrorKind::AlreadyExists => return Err(e.into()),
+        _ => (),
+    }
+
+    let mime = upload_file.mime.map(|mime| mime.to_string());
+    let path = PathBuf::from(format!("uploads/{}", file_name));
+
+    if !path.exists() {
+        let mut file = std::fs::File::create(&path)?;
+        let mut buf_writer = BufWriter::new(&mut file);
+        cropped_image.write_to(&mut buf_writer, ImageFormat::Png)?;
+    }
+
+    let file_id = sqlx::query!(
+            "INSERT INTO files (path, mime, profile_image) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET path = path RETURNING id",
+            file_name,
+            mime,
+            true
+        )
+        .fetch_one(&state)
+        .await?
+        .id;
+
+    let id = sqlx::query!(
+            "INSERT INTO file_uploads (file_id, user_id) VALUES (?, ?) ON CONFLICT DO UPDATE SET file_id = file_id RETURNING file_id as id",
+            file_id,
+            user.id
+        )
+        .fetch_one(&state)
+        .await?.id;
+
+    Ok((
+        StatusCode::CREATED,
+        AppJson(response!("Profile image uploaded successfully", id)),
+    )
+        .into_response())
+}
+
+// Crop an image using the center as the anchor point
+fn crop_from_center(image: &DynamicImage, width: u32, height: u32) -> DynamicImage {
+    let (iwidth, iheight) = image.dimensions();
+    let (center_x, center_y) = (iwidth / 2, iheight / 2);
+    // This function from the image crate crops the image with the top left corner as the anchor point
+    // So translate the center to the top left corner
+    image.crop_imm(
+        center_x - (width / 2),
+        center_y - (height / 2),
+        width,
+        height,
+    )
 }

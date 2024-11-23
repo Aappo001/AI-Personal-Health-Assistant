@@ -61,3 +61,4 @@ tower-http = { version = "0.6.1", features = ["trace", "fs", "cors", "compressio
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 validator = { version = "0.18.1", features = ["derive"] }
+image = "0.25.5"
