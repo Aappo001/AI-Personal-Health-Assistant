@@ -491,11 +491,11 @@ async fn request_messages(
 
     let mut query = sqlx::query_as!(
         ChatMessage,
-        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id, file_name, files.path as file_path FROM messages
-        JOIN conversations ON conversations.id = messages.conversation_id 
+        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id,
+        user_id, ai_model_id, file_name, files.path as file_path FROM messages
         LEFT JOIN files ON messages.file_id = files.id
-        WHERE conversations.id = ? AND messages.id < ?
-        ORDER BY last_message_at DESC
+        WHERE messages.conversation_id = ? AND messages.id < ?
+        ORDER BY messages.created_at DESC
         LIMIT ?"#,
         request.conversation_id,
         message_id,
