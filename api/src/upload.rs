@@ -202,19 +202,7 @@ pub async fn upload_profile_image(
     // Calculate the hash of the file to use as the filename
     let hash = Sha256::digest(cropped_image.as_bytes());
 
-    let file_name = format!(
-        "{:x}{}",
-        hash,
-        match upload_file
-            .mime
-            .as_ref()
-            .and_then(|mime| get_mime_extensions(mime))
-            .and_then(|exts| exts.first())
-        {
-            Some(ext) => format!(".{}", ext),
-            None => String::new(),
-        },
-    );
+    let file_name = format!("{:x}.png", hash);
 
     // Create the uploads directory if it does not
     // already exist and ignore the error if it does
@@ -223,7 +211,6 @@ pub async fn upload_profile_image(
         _ => (),
     }
 
-    let mime = upload_file.mime.map(|mime| mime.to_string());
     let path = PathBuf::from(format!("uploads/{}", file_name));
 
     if !path.exists() {
@@ -235,7 +222,7 @@ pub async fn upload_profile_image(
     let file_id = sqlx::query!(
             "INSERT INTO files (path, mime, profile_image) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET path = path RETURNING id",
             file_name,
-            mime,
+            "image/png",
             true
         )
         .fetch_one(&state)
