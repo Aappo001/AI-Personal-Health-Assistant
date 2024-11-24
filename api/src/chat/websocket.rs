@@ -306,7 +306,6 @@ struct RequestConversation {
 }
 
 /// Handles incoming websocket connections
-// TODO: Implement querying AI model for responses
 #[instrument]
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
@@ -491,11 +490,8 @@ async fn request_messages(
 
     let mut query = sqlx::query_as!(
         ChatMessage,
-        r#"SELECT messages.id, message, messages.created_at, modified_at, conversation_id,
-        user_id, ai_model_id, file_name, files.path as file_path FROM messages
-        LEFT JOIN files ON messages.file_id = files.id
-        WHERE messages.conversation_id = ? AND messages.id < ?
-        ORDER BY messages.created_at DESC
+        r#"SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?
+        ORDER BY created_at DESC
         LIMIT ?"#,
         request.conversation_id,
         message_id,
@@ -625,7 +621,14 @@ async fn save_message(
             .await?.id
         }
     };
-    get_chat_message(&state.pool, message_id).await
+
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "SELECT * FROM chat_messages WHERE id = ?",
+        message_id
+    )
+    .fetch_one(&state.pool)
+    .await?)
 }
 
 /// Edit message in the database
@@ -660,7 +663,13 @@ async fn edit_message(
     .execute(&state.pool)
     .await?;
 
-    get_chat_message(&state.pool, message.id).await
+    Ok(sqlx::query_as!(
+        ChatMessage,
+        "SELECT * FROM chat_messages WHERE id = ?",
+        message.id
+    )
+    .fetch_one(&state.pool)
+    .await?)
 }
 
 /// Delete a message in the database
@@ -1034,7 +1043,13 @@ async fn handle_message(
                                     )
                                         .fetch_one(&state.pool)
                                         .await?.id;
-                                    Ok(Some(get_chat_message(&state.pool, message).await?))
+                                        Ok(Some(sqlx::query_as!(
+                                            ChatMessage,
+                                            "SELECT * FROM chat_messages WHERE id = ?",
+                                            message
+                                        )
+                                        .fetch_one(&state.pool)
+                                        .await?))
                                 }
                                 _ = async {
                                     // Subscribe to the broadcast channel to listen for the
@@ -1488,21 +1503,6 @@ async fn send_message(
         }
     }
     Ok(true)
-}
-
-/// Utility function to easily extract a chat message from the database
-async fn get_chat_message(pool: &SqlitePool, message_id: i64) -> Result<ChatMessage, AppError> {
-    Ok(sqlx::query_as!(
-        ChatMessage,
-        "SELECT messages.id, message, user_id, conversation_id, messages.created_at,
-        ai_model_id, file_name, modified_at, files.path as file_path FROM messages
-        LEFT JOIN files
-        ON messages.file_id = files.id
-        WHERE messages.id = ?",
-        message_id
-    )
-    .fetch_one(pool)
-    .await?)
 }
 
 /// Removes a user from a conversation
