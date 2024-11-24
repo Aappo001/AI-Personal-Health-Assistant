@@ -42,6 +42,20 @@ BEGIN
   WHERE id = NEW.conversation_id;
 END;
 
+CREATE VIEW chat_messages AS
+SELECT 
+	messages.id, 
+	messages.message, 
+	messages.user_id, 
+	messages.ai_model_id, 
+	messages.file_name, 
+	messages.created_at, 
+	messages.modified_at, 
+	messages.conversation_id, 
+	files.path as file_path
+FROM messages
+LEFT JOIN files ON messages.file_id = files.id;
+
 -- References: https://www.sqlite.org/fts5.html and https://www.sqlite.org/fts5.html#external_content_tables
 CREATE VIRTUAL TABLE messages_fts USING fts5(conversation_id, message, stemmed_message, content='messages', content_rowid='id');
 
