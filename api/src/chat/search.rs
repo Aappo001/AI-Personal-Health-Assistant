@@ -1,8 +1,9 @@
 use chrono::NaiveDate;
 use futures::StreamExt;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use sqlx::{QueryBuilder, Sqlite};
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::Sender;
 
 use crate::{chat::ChatMessage, error::AppError, AppState};
 
@@ -54,23 +55,24 @@ pub enum Filter {
 // ¯\_(ツ)_/¯
 //
 // The final query will look something like:
-// SELECT *, messages_fts.rank FROM messages
+// SELECT *, messages_fts.rank FROM chat_messages
 // JOIN messages_fts
 // ON messages.id = messages_fts.rowid
-// WHERE messages_fts.message MATCH 'NEAR("search_query", 5)'
+// WHERE messages_fts.message MATCH 'NEAR(search_query, 5)'
 // UNION
-// SELECT *, messages_fts.rank FROM messages
+// SELECT *, messages_fts.rank FROM chat_messages
 // JOIN messages_fts
 // ON messages.id = messages_fts.rowid
 // WHERE messages_fts.stemmed_message
-// MATCH 'NEAR("stem(search_query)" "linear", 5)' ORDER BY messages_fts.rank;
+// MATCH 'NEAR(stem(search_query), 5)' ORDER BY messages_fts.rank;
 /// Search messages in the database according to given query
 pub async fn search_message(
     state: &AppState,
     search_message: &SearchMessage,
-    sender: &broadcast::Sender<SocketResponse>,
+    sender: &Sender<SocketResponse>,
 ) -> Result<(), AppError> {
-    let search_query = search_message.query.replace("'", "\\'").to_lowercase();
+    // Escape single quotes and convert to lowercase
+    let search_query = search_message.query.replace("'", "''").to_lowercase();
     let search_query = search_query.trim();
     if search_query.is_empty() {
         return Ok(());
@@ -81,9 +83,9 @@ pub async fn search_message(
     // Union them together to get the final result.
     for i in 0..2 {
         builder.push(
-            "SELECT *, messages_fts.rank FROM messages
+            "SELECT *, messages_fts.rank FROM chat_messages
                 JOIN messages_fts
-                ON messages.id = messages_fts.rowid 
+                ON chat_messages.id = messages_fts.rowid 
                 WHERE ",
         );
 
@@ -122,15 +124,15 @@ pub async fn search_message(
             builder.push(" AND ");
             match filter {
                 Filter::Before(date) => {
-                    builder.push("messages.created_at < ?");
+                    builder.push("chat_messages.created_at < ?");
                     builder.push_bind(date);
                 }
                 Filter::After(date) => {
-                    builder.push("messages.created_at > ?");
+                    builder.push("chat_messages.created_at > ?");
                     builder.push_bind(date);
                 }
                 Filter::During(date) => {
-                    builder.push("messages.created_at >= ? AND messages.created_at < ?");
+                    builder.push("chat_messages.created_at >= ? AND chat_messages.created_at < ?");
                     builder.push_bind(date);
                     builder.push_bind(*date + chrono::Duration::days(1));
                 }
@@ -157,16 +159,31 @@ pub async fn search_message(
 
     builder.push(" ORDER BY ");
     builder.push(match search_message.order {
-        SearchOrder::Newest => "messages.created_at DESC",
-        SearchOrder::Oldest => "messages.created_at ASC",
-        SearchOrder::Relevance => "messages_fts.rank DESC",
+        SearchOrder::Newest => "chat_messages.created_at DESC",
+        SearchOrder::Oldest => "chat_messages.created_at ASC",
+        SearchOrder::Relevance => "chat_messages_fts.rank DESC",
     });
 
     let query = builder.build_query_as::<ChatMessage>();
     let mut query = query.fetch(&state.pool);
 
     while let Some(message) = query.next().await {
-        sender.send(SocketResponse::SearchMessage(message?))?;
+        match message {
+            Ok(message) => sender.send(SocketResponse::SearchMessage(message))?,
+            // Check if the error is a database error with code 1 which means the search query is invalid
+            Err(e)
+                if e.as_database_error()
+                    .and_then(|e| e.code())
+                    .is_some_and(|code| code == "1") =>
+            {
+                return Err(AppError::UserError((
+                    StatusCode::BAD_REQUEST,
+                    "Invalid search query".into(),
+                )))
+            }
+
+            Err(e) => return Err(e.into()),
+        };
     }
     Ok(())
 }
