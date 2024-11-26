@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { RegisterBody } from "../types";
 import Background from "./Background";
 import axios from "axios";
-import { RegisterUser, debounce } from "../utils/utils";
+import { BASE_URL, RegisterUser, debounce } from "../utils/utils";
 
 export default function Register() {
   const [user, setUser] = useState<RegisterBody>({
@@ -18,7 +18,7 @@ export default function Register() {
   const debounceCheck = useCallback(debounce(async (event: React.ChangeEvent<HTMLInputElement>) => {
     if ((event.target.name === "username" || event.target.name === "email") && event.target.value) {
       try {
-        const response = await axios.get(`http://localhost:3000/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
+        const response = await axios.get(`${BASE_URL}/api/check/${event.target.name}/${event.target.value}`); // Use Axios for the API request
 
         if (response.status !== 200) {
           let error = response.data;

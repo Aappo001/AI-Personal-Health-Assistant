@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+    BASE_URL,
   getJwt,
   getRandomColor,
   getUserFromId,
@@ -41,7 +42,9 @@ export default function useWebsocketSetup() {
 
   useEffect(() => {
     console.log("Running chat setup..");
-    const url = "ws://localhost:3000/api/ws";
+    const url = new URL("/api/ws", BASE_URL ? BASE_URL : window.location.origin);
+    url.protocol = url.protocol.replace('http', 'ws');
+    // should look like url = "ws://localhost:3000/api/ws";
     socketRef.current = new WebSocket(url, [
       "fakeProtocol",
       btoa(`Bearer ${getJwt()}`).replace(/=/g, ""),

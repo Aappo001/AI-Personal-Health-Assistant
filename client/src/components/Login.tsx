@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { LoginBody } from "../types";
 import Background from "./Background";
-import { getJwtFromResponseHeader, saveJwtToLocalStorage } from "../utils/utils";
+import { BASE_URL, getJwtFromResponseHeader, saveJwtToLocalStorage } from "../utils/utils";
 import axios from "axios";
 import useImplicitLogin from "../store/hooks/useImplicitLogin";
 import useUserStore from "../store/hooks/useUserStore";
@@ -33,7 +33,7 @@ export default function Login() {
     }
 
     try {
-      const response = await axios.post("http://localhost:3000/api/login", login, {
+      const response = await axios.post(`${BASE_URL}/api/login`, login, {
         headers: {
           "Content-Type": "application/json",
         },
