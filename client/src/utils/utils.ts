@@ -2,11 +2,13 @@ import axios, { AxiosResponse } from "axios";
 import { implicitLoginSchema, publicUserSchema } from "../schemas";
 import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser, FileUpload } from "../types";
 
+export const BASE_URL = import.meta.env.DEV ? "http://localhost:3000" : "";
+
 export async function RegisterUser(
   user: RegisterBody
 ): Promise<ServerResponse | ErrorResponse> {
   try {
-    const response = await axios.post<ServerResponse>("http://localhost:3000/api/register", user, {
+    const response = await axios.post<ServerResponse>(`${BASE_URL}/api/register`, user, {
       headers: {
         "Content-Type": "application/json",
       },
@@ -21,8 +23,8 @@ export async function RegisterUser(
   }
 }
 
-export async function checkUsername(username: string): Promise<boolean>{
-  const response = await fetch(`http://localhost:3000/api/check/username/${username}`)
+export async function checkUsername(username: string): Promise<boolean> {
+  const response = await fetch(`${BASE_URL}/api/check/username/${username}`)
   return response.status === 200
 }
 
@@ -37,12 +39,13 @@ export function debounce<T extends unknown[]>(func: (...args: T) => void, delay:
   };
 }
 
+
 export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
   const jwt = getJwt();
   if (!jwt) return;
-  
+
   try {
-    const response = await axios.get<SessionUser>("http://localhost:3000/api/login", {
+    const response = await axios.get<SessionUser>(`${BASE_URL}/api/login`, {
       headers: {
         "Content-Type": "application/json",
         "authorization": `Bearer ${jwt}`,
@@ -65,7 +68,7 @@ export const loginImplicitly = async (): Promise<SessionUser | undefined> => {
 };
 
 export const getUserIdFromUsername = async (username: string): Promise<number | undefined> => {
-  const response = await fetch(`http://localhost:3000/api/users/username/${username}`);
+  const response = await fetch(`${BASE_URL}/api/users/username/${username}`);
 
   if (!response.ok) {
     console.log("Error getting user id from username");
@@ -82,19 +85,19 @@ export const getUserIdFromUsername = async (username: string): Promise<number | 
 }
 
 export const getUserFromId = async (id: number): Promise<PublicUser | undefined> => {
-  const response = await fetch(`http://localhost:3000/api/users/id/${id}`)
-  if(!response.ok) {
+  const response = await fetch(`${BASE_URL}/api/users/id/${id}`)
+  if (!response.ok) {
     console.error("Error getting user from id");
     return
   }
-  
+
   const user = publicUserSchema.safeParse(await response.json())
 
-  if(!user.success) {
+  if (!user.success) {
     console.log(`Error parsing JSON: ${user.error}`);
     return
   }
-  
+
   return user.data
 }
 
