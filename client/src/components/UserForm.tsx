@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Background from "./Background";
 import axios from "axios";
+import { BASE_URL } from "../utils/utils";
 
 interface HealthStatsBody {
     height?: number;
@@ -43,7 +44,7 @@ export default function UserHealthForm() {
 
         try {
             const response = await axios.post(
-                "http://localhost:3000/api/forms/health",
+                `${BASE_URL}/api/forms/health`,
                 healthStats,
                 {
                     headers: {

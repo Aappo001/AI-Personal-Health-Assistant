@@ -2,7 +2,7 @@ import { useState } from "react";
 import useUserStore from "../store/hooks/useUserStore";
 import Background from "./Background";
 import { LoginBody, RegisterBody } from "../types";
-import { getJwt } from "../utils/utils";
+import { BASE_URL, getJwt } from "../utils/utils";
 import axios from "axios";
 
 export default function ProfilePage() {
@@ -33,7 +33,7 @@ export default function ProfilePage() {
         event.preventDefault();
         try {
             const response = await axios.delete(
-                "http://localhost:3000/api/account",
+                `${BASE_URL}/api/account`,
                 {
                     headers: {
                         "Content-Type": "application/json",
