@@ -11,7 +11,7 @@ use sqlx::{prelude::FromRow, SqlitePool};
 use crate::{auth::JwtAuth, error::AppError};
 use crate::{error::AppJson, users::UserToken};
 
-use super::SendMessage;
+use super::{OnlineStatus, SendMessage};
 
 /// A conversation between at least one user and an AI
 #[derive(Serialize, Debug, Clone)]
@@ -43,6 +43,9 @@ pub struct ConversationUser {
     /// The timestamp when the user last read the conversation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_read_at: Option<NaiveDateTime>,
+    /// The online status of the user
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub online_status: Option<OnlineStatus>,
 }
 
 /// Create a conversation between the user and the AI from an initial message
