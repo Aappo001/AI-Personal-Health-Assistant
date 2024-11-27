@@ -36,7 +36,10 @@ use std::{
     net::SocketAddr,
     ops::Deref,
     str::FromStr,
-    sync::{atomic::AtomicI64, Arc},
+    sync::{
+        atomic::{AtomicI64, AtomicPtr},
+        Arc,
+    },
     time::Duration,
 };
 use tower::ServiceBuilder;
@@ -57,7 +60,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
-use tokio::{net::TcpListener, sync::broadcast::Sender};
+use tokio::{net::TcpListener, sync::broadcast::Sender, task::JoinHandle, time::Instant};
 use tracing::info;
 use upload::{upload_file, upload_profile_image};
 use users::{
@@ -145,6 +148,13 @@ pub struct ConnectionState {
     /// option is to use `Arc<AtomicPtr<Option<i64>>>` but that requires unsafe code to
     /// manage the pointer.
     ai_responding: Arc<AtomicI64>,
+    /// The timestamp of the last message recieved from any connection from the user over the
+    /// websocket. Used to determine if the user is idle
+    last_sent_at: Arc<AtomicPtr<Instant>>,
+    /// The handle to the indle checking task
+    /// Held in this struct so that any connection can cancel it, regardless of the connection that
+    /// initiated the task
+    idle_handle: Arc<JoinHandle<()>>,
 }
 
 /// The inner state of a user's connection to the server.
