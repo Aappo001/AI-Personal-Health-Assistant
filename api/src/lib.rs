@@ -36,10 +36,7 @@ use std::{
     net::SocketAddr,
     ops::Deref,
     str::FromStr,
-    sync::{
-        atomic::{AtomicI64, AtomicPtr},
-        Arc,
-    },
+    sync::{atomic::AtomicI64, Arc},
     time::Duration,
 };
 use tower::ServiceBuilder;
@@ -51,16 +48,14 @@ use tower_http::{
     LatencyUnit, ServiceBuilderExt,
 };
 
-use chat::{
-    connect_conversation, create_conversation_rest, get_ai_models, get_conversation, SocketResponse,
-};
+use chat::{create_conversation_rest, get_ai_models, get_conversation, init_ws, SocketResponse};
 use cli::Args;
 use scc::HashMap;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
-use tokio::{net::TcpListener, sync::broadcast::Sender, task::JoinHandle, time::Instant};
+use tokio::{net::TcpListener, sync::broadcast::Sender, task::JoinHandle};
 use tracing::info;
 use upload::{upload_file, upload_profile_image};
 use users::{
@@ -79,6 +74,8 @@ pub const PROTOCOL: &str = "sqlite:///";
 /// The protocol for connecting to a SQLite database.
 #[cfg(unix)]
 pub const PROTOCOL: &str = "sqlite://";
+
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// The application state that is shared across all routes.
 #[derive(Clone, Debug)]
@@ -150,7 +147,7 @@ pub struct ConnectionState {
     ai_responding: Arc<AtomicI64>,
     /// The timestamp of the last message recieved from any connection from the user over the
     /// websocket. Used to determine if the user is idle
-    last_sent_at: Arc<AtomicPtr<Instant>>,
+    last_sent_at: Arc<AtomicI64>,
     /// The handle to the indle checking task
     /// Held in this struct so that any connection can cancel it, regardless of the connection that
     /// initiated the task
@@ -298,7 +295,7 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
         // Used to upload files to the server
         .nest_service("/upload/", ServeDir::new("uploads"))
         // .route("/chat/query_model/*model_name", get(query_model))
-        .route("/ws", get(connect_conversation))
+        .route("/ws", get(init_ws))
         // Add CORS headers to all responses
         .layer(cors);
 
