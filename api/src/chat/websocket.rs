@@ -2,10 +2,9 @@ use std::{
     collections::HashSet,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicI64, AtomicPtr, Ordering},
+        atomic::{AtomicI64, Ordering},
         Arc,
     },
-    time::Duration,
 };
 
 use anyhow::anyhow;
@@ -18,18 +17,18 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose, Engine};
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
-use tokio::{sync::broadcast, time::Instant};
+use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
 use crate::{
     chat::{query_model, search::search_message, Conversation, ConversationUser},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
-    AppState, ConnectionState, InnerConnection,
+    AppState, ConnectionState, InnerConnection, IDLE_TIMEOUT,
 };
 
 use super::{
@@ -48,7 +47,7 @@ use super::{
 /// Doesn't actually do anything with the connection other than authorization
 /// Passes on the connection to the `conversations_socket` function where the actual
 /// logic for the websocket is implemented
-pub async fn connect_conversation(
+pub async fn init_ws(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     mut headers: HeaderMap,
@@ -82,7 +81,7 @@ pub async fn connect_conversation(
     info!("Received websocket connection from {}", addr);
     Ok(ws
         .protocols(["fakeProtocol"])
-        .on_upgrade(|socket| conversations_socket(socket, state, user)))
+        .on_upgrade(|socket| handle_ws(socket, state, user)))
 }
 
 /// The types of responses from the socket
@@ -307,43 +306,48 @@ struct RequestConversation {
     message_num: Option<i64>,
 }
 
+/// Checks if the user is idle and updates their status accordingly
+/// Never returns unless the user disconnects
 async fn idle_check(state: &AppState, user_id: i64) {
     let mut is_idle = false;
     // Time it takes for a user to be considered idle
-    let idle_time = Duration::from_secs(60 * 5);
     let last_sent_at = state
         .user_sockets
         .read_async(&user_id, |_, v| v.last_sent_at.clone())
         .await
         .expect("Connection should be initialized before this operation completes");
     loop {
-        let last_sent_timestamp = unsafe { *last_sent_at.load(Ordering::SeqCst) };
+        // This is safe to unwrap because the last_sent_at timestamp is always set
+        // directly from Utc::now() which is guaranteed to be valid
+        let last_sent_timestamp = unsafe {
+            DateTime::from_timestamp_millis(last_sent_at.load(Ordering::SeqCst)).unwrap_unchecked()
+        };
         // Timestamp at which the user would be considered idle without sending any messages over
         // the websocket
-        let idle_timestamp = last_sent_timestamp + idle_time;
-        let now = Instant::now();
-        let cur_idle = now < idle_timestamp;
-        if !is_idle && cur_idle {
-            // The user went from not idle to idle so update their status
-            let _ = emit_user_status(state, user_id, OnlineStatus::Idle);
-        } else if is_idle && !cur_idle {
-            // The user went from idle to not idle so update their status
-            let _ = emit_user_status(state, user_id, OnlineStatus::Online);
+        let idle_timestamp = last_sent_timestamp + IDLE_TIMEOUT;
+        let now = Utc::now();
+        match (idle_timestamp - now).to_std() {
+            Ok(sleep_duration) => {
+                is_idle = false;
+                // The user is not idle, so wait and then check again
+                tokio::time::sleep(sleep_duration).await;
+            }
+            Err(_) => {
+                if !is_idle {
+                    // The user went from not idle to idle so update their status
+                    let _ = emit_user_status(state, user_id, OnlineStatus::Idle).await;
+                }
+                is_idle = true;
+                // The user is idle, so just wait for the idle duration before checking for any
+                // activity again
+                tokio::time::sleep(IDLE_TIMEOUT).await;
+            }
         }
-        if cur_idle {
-            // The user is not idle, so wait and then check again
-            tokio::time::sleep(idle_timestamp - now).await;
-        } else {
-            // The user is idle, so just wait for the idle duration before checking for any
-            // activity again
-            tokio::time::sleep(idle_time).await;
-        }
-        is_idle = cur_idle;
     }
 }
 /// Handles incoming websocket connections
 #[instrument]
-pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
+pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
     let user = Arc::new(user);
 
@@ -377,7 +381,7 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     ConnectionState {
                         connections: connections.clone(),
                         ai_responding: Arc::new(AtomicI64::new(0)),
-                        last_sent_at: Arc::new(AtomicPtr::new(&mut Instant::now() as *mut _)),
+                        last_sent_at: Arc::new(AtomicI64::new(Utc::now().timestamp_millis())),
                         idle_handle: Arc::new(tokio::spawn({
                             let state = state.clone();
                             let user_id = user.id;
@@ -445,10 +449,25 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     async move {
                         match msg {
                             Ok(msg) => {
+                                // Check if the user was idle and update their status so they are
+                                // no longer idle
+                                let now = Utc::now();
+                                if unsafe {
+                                    DateTime::from_timestamp_millis(
+                                        socket.last_sent_at.load(Ordering::SeqCst),
+                                    )
+                                    .unwrap_unchecked()
+                                } + IDLE_TIMEOUT
+                                    < now
+                                {
+                                    let _ = emit_user_status(&state, user.id, OnlineStatus::Online)
+                                        .await;
+                                }
+
                                 // Update the timestamp of the last sent message for idle checking
                                 socket
                                     .last_sent_at
-                                    .store(&mut Instant::now() as *mut _, Ordering::SeqCst);
+                                    .store(now.timestamp_millis(), Ordering::SeqCst);
                                 // Handle the received message
                                 if let Err(e) = handle_message(
                                     msg,
@@ -1157,6 +1176,13 @@ async fn handle_message(
                     invitees,
                     mut conversation_id,
                 } => {
+                    if invitees.is_empty() {
+                        return Err(AppError::UserError((
+                            StatusCode::BAD_REQUEST,
+                            "No users to invite".into(),
+                        )));
+                    }
+
                     conversation_id =
                         Some(invite_user(&state.pool, conversation_id, &invitees, user).await?);
                     broadcast_event(
@@ -1538,8 +1564,6 @@ async fn send_message(
     if user.exp < chrono::Utc::now().timestamp() {
         return Ok(false);
     }
-    // *SAFETY* The `sonic_rs::to_string` function can safely be unwrapped because the `SocketResponse` enum
-    // is serializable and will not panic
     // All responses should be serialized to JSON
     // and sent as Text
     match msg {
@@ -1561,13 +1585,17 @@ async fn leave_conversation(
     user_id: i64,
 ) -> Result<(), AppError> {
     // Remove the user from the conversation
-    sqlx::query!(
+    let query = sqlx::query!(
         "DELETE FROM user_conversations WHERE user_id = ? and conversation_id = ?",
         user_id,
         conversation_id
     )
     .execute(pool)
     .await?;
+
+    if query.rows_affected() == 0 {
+        return Err(anyhow!("User is not in the conversation").into());
+    }
 
     // Check how many users are left in the conversation
     let remaining_users = sqlx::query_scalar!(
