@@ -1,7 +1,8 @@
 import { useState } from "react";
 import Background from "./Background";
 import axios from "axios";
-import { BASE_URL } from "../utils/utils";
+import { BASE_URL, getJwt} from "../utils/utils";
+
 
 interface HealthStatsBody {
     height?: number;
@@ -13,6 +14,9 @@ interface HealthStatsBody {
 }
 
 export default function UserHealthForm() {
+
+
+
     const [healthStats, setHealthStats] = useState<HealthStatsBody>({
         height: undefined,
         weight: undefined,
@@ -26,7 +30,7 @@ export default function UserHealthForm() {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     
-    const jwt = localStorage.getItem("jwt");
+    const jwt = getJwt();
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
