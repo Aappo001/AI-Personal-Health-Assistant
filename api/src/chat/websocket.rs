@@ -18,7 +18,7 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
+use futures::{future, stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
 use tokio::sync::broadcast;
@@ -345,6 +345,36 @@ async fn idle_check(state: &AppState, user_id: i64) {
         }
     }
 }
+
+/// Get  the online status of a user
+pub async fn get_user_status(state: &AppState, user_id: i64) -> OnlineStatus {
+    let Some(conn_state) = state
+        .user_sockets
+        .read_async(&user_id, |_, v| v.clone())
+        .await
+    else {
+        return OnlineStatus::Offline;
+    };
+
+    // If all connections are None, the user is offline
+    if conn_state.connections.iter().all(|x| x.is_none()) {
+        return OnlineStatus::Offline;
+    }
+
+    // If the user has sent a message within the last IDLE_TIMEOUT duration, they are online, but
+    // idle
+    if unsafe {
+        DateTime::from_timestamp_millis(conn_state.last_sent_at.load(Ordering::SeqCst))
+            .unwrap_unchecked()
+    } + IDLE_TIMEOUT
+        > Utc::now()
+    {
+        return OnlineStatus::Idle;
+    }
+
+    OnlineStatus::Online
+}
+
 /// Handles incoming websocket connections
 #[instrument]
 pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
@@ -458,7 +488,7 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                                     )
                                     .unwrap_unchecked()
                                 } + IDLE_TIMEOUT
-                                    < now
+                                    > now
                                 {
                                     let _ = emit_user_status(&state, user.id, OnlineStatus::Online)
                                         .await;
@@ -1242,14 +1272,18 @@ async fn handle_message(
                                     // and cloning is more expensive than taking
                                     title: conversation.title.take(),
                                     users: Some(
-                                        query
-                                            .iter()
-                                            .map(|u| ConversationUser {
+                                        future::join_all(query.iter().map(|u| async {
+                                            ConversationUser {
                                                 id: u.user_id,
                                                 last_message_at: u.user_last_message_at,
                                                 last_read_at: u.last_read_at,
-                                            })
-                                            .collect(),
+                                                online_status: Some(
+                                                    get_user_status(state, u.user_id).await,
+                                                ),
+                                            }
+                                        }))
+                                        .await
+                                        .into(),
                                     ),
                                 }))?;
                         }
