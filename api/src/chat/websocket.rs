@@ -2,9 +2,10 @@ use std::{
     collections::HashSet,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicI64, AtomicPtr, Ordering},
         Arc,
     },
+    time::Duration,
 };
 
 use anyhow::anyhow;
@@ -21,7 +22,7 @@ use chrono::NaiveDateTime;
 use futures::{stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
-use tokio::sync::broadcast;
+use tokio::{sync::broadcast, time::Instant};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
@@ -164,6 +165,7 @@ pub enum FriendRequestStatus {
 #[derive(Serialize, Clone, Debug)]
 pub enum OnlineStatus {
     Online,
+    Idle,
     Offline,
 }
 
@@ -305,6 +307,40 @@ struct RequestConversation {
     message_num: Option<i64>,
 }
 
+async fn idle_check(state: &AppState, user_id: i64) {
+    let mut is_idle = false;
+    // Time it takes for a user to be considered idle
+    let idle_time = Duration::from_secs(60 * 5);
+    let last_sent_at = state
+        .user_sockets
+        .read_async(&user_id, |_, v| v.last_sent_at.clone())
+        .await
+        .expect("Connection should be initialized before this operation completes");
+    loop {
+        let last_sent_timestamp = unsafe { *last_sent_at.load(Ordering::SeqCst) };
+        // Timestamp at which the user would be considered idle without sending any messages over
+        // the websocket
+        let idle_timestamp = last_sent_timestamp + idle_time;
+        let now = Instant::now();
+        let cur_idle = now < idle_timestamp;
+        if !is_idle && cur_idle {
+            // The user went from not idle to idle so update their status
+            let _ = emit_user_status(state, user_id, OnlineStatus::Idle);
+        } else if is_idle && !cur_idle {
+            // The user went from idle to not idle so update their status
+            let _ = emit_user_status(state, user_id, OnlineStatus::Online);
+        }
+        if cur_idle {
+            // The user is not idle, so wait and then check again
+            tokio::time::sleep(idle_timestamp - now).await;
+        } else {
+            // The user is idle, so just wait for the idle duration before checking for any
+            // activity again
+            tokio::time::sleep(idle_time).await;
+        }
+        is_idle = cur_idle;
+    }
+}
 /// Handles incoming websocket connections
 #[instrument]
 pub async fn conversations_socket(stream: WebSocket, state: AppState, user: UserToken) {
@@ -341,6 +377,12 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     ConnectionState {
                         connections: connections.clone(),
                         ai_responding: Arc::new(AtomicI64::new(0)),
+                        last_sent_at: Arc::new(AtomicPtr::new(&mut Instant::now() as *mut _)),
+                        idle_handle: Arc::new(tokio::spawn({
+                            let state = state.clone();
+                            let user_id = user.id;
+                            async move { idle_check(&state, user_id).await }
+                        })),
                     },
                 )
                 .await;
@@ -348,8 +390,8 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
             // Do it in a separate task so that the connection isn't blocked
             tokio::spawn({
                 let state = state.clone();
-                let user = user.clone();
-                async move { emit_user_status(&state, &user, OnlineStatus::Online).await }
+                let user_id = user.id;
+                async move { emit_user_status(&state, user_id, OnlineStatus::Online).await }
             });
             (0, inner_connection)
         }
@@ -403,6 +445,11 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
                     async move {
                         match msg {
                             Ok(msg) => {
+                                // Update the timestamp of the last sent message for idle checking
+                                socket
+                                    .last_sent_at
+                                    .store(&mut Instant::now() as *mut _, Ordering::SeqCst);
+                                // Handle the received message
                                 if let Err(e) = handle_message(
                                     msg,
                                     &state,
@@ -453,14 +500,15 @@ pub async fn conversations_socket(stream: WebSocket, state: AppState, user: User
 
     // Remove the user from the connection once all the tasks are
     // complete and all user devices have disconnected
-    if state
+    if let Some((_, conn)) = state
         .user_sockets
         .remove_if_async(&user.id, |v| v.connections.iter().all(|x| x.is_none()))
         .await
-        .is_some()
     {
+        // Abort the idle checker since the user has no active connections to check for messages on
+        conn.idle_handle.abort();
         // Attempt to let other users know that the user is offline
-        let _ = emit_user_status(&state, &user, OnlineStatus::Offline).await;
+        let _ = emit_user_status(&state, user.id, OnlineStatus::Offline).await;
     }
 }
 
@@ -509,13 +557,13 @@ async fn request_messages(
 /// on a conversation that user x is in
 async fn emit_user_status(
     state: &AppState,
-    user: &UserToken,
+    user_id: i64,
     status: OnlineStatus,
 ) -> Result<(), AppError> {
     // Collect all of the conversations the user is in
     let conversations: HashSet<i64> = sqlx::query!(
         "SELECT DISTINCT conversation_id FROM user_conversations WHERE user_id = ?",
-        user.id
+        user_id
     )
     .fetch(&state.pool)
     .map(|row| row.map(|x| x.conversation_id))
@@ -545,7 +593,7 @@ async fn emit_user_status(
             };
             // Send the updated status
             conn.channel.send(SocketResponse::UserStatus {
-                user_id: user.id,
+                user_id: *user_id,
                 status: status.clone(),
             })?;
         }
