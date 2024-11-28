@@ -34,6 +34,7 @@ pub enum AppError {
 /// A JSON response for errors that includes the error type and message
 /// Used in both WebSockets and HTTP responses to notify the client of errors
 #[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorResponse {
     error_type: String,
     message: String,

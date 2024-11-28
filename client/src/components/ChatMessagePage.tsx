@@ -4,9 +4,13 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { WebsocketContext } from "./Chat";
 import SpeechBubble from "./SpeechBubble";
 import useUserStore from "../store/hooks/useUserStore";
-import { getUserFromId } from "../utils/utils";
+import { getUserFromId, uploadAttachment } from "../utils/utils";
 import Toggle from "./Toggle";
 import useConversationStore from "../store/hooks/useConversationStore";
+import useFileAttachment from "../store/hooks/useFileAttachment";
+import FileAttachment from "./FileAttachment";
+import MessageAttachment from "./MessageAttachment";
+import { UploadAttachment } from "../types";
 
 export default function ChatMessagePage() {
   const user = useUserStore();
@@ -22,6 +26,8 @@ export default function ChatMessagePage() {
   const [selectedModel, setSelectedModel] = useState(3);
   const [aiEnabled, setAiEnabled] = useState(false);
   const { renameConversation } = useContext(WebsocketContext);
+  const { attachment, hiddenFileInput, handleFileUploadClick, resetFile } =
+    useFileAttachment();
   let { id } = useParams();
   if (!id) {
     window.location.href = "/chat";
@@ -29,13 +35,19 @@ export default function ChatMessagePage() {
   }
   const defaultTitle = `Conversation ${id}`;
 
-  const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (aiEnabled) {
-      handleSendMessage(message, parseInt(id), selectedModel);
-    } else {
-      handleSendMessage(message, parseInt(id));
+    let file_id: number | undefined;
+    let messageAttachment: UploadAttachment | undefined;
+    if (attachment.fileData) {
+      file_id = await uploadAttachment(attachment);
+      messageAttachment = {
+        id: file_id,
+        name: attachment.fileName,
+      };
     }
+    handleSendMessage(message, parseInt(id), aiEnabled ? selectedModel : undefined, messageAttachment);
+    resetFile();
     setMessage("");
   };
 
@@ -116,28 +128,43 @@ export default function ChatMessagePage() {
             getUserFromId(message.userId)
               .then((unknownUser) => {
                 if (!unknownUser || !message.userId) return;
-                updateUserMap({ ...userMap, [message.userId]: unknownUser.username });
+                updateUserMap({ ...userMap, [message.userId]: unknownUser });
               })
               .catch((err) => {
                 console.log(`Error getting user: ${err}`);
               });
           }
 
-          const from = message.userId ? userMap[message.userId] : "AI";
+          const from = message.userId ? userMap[message.userId].username : "AI";
           return (
             <SpeechBubble
               message={message.content}
               from={from}
               isFromUser={message.userId === user.id}
               key={`${message.userId}-${i}`}
-            />
+            >
+              {message.filePath && <MessageAttachment fileName={message.fileName} filePath={`http://localhost:3000/api/upload/${message.filePath}`} />}
+            </SpeechBubble>
           );
         })}
       </div>
+      {attachment.fileName && (
+        <FileAttachment fileName={attachment.fileName} handleFileClear={resetFile} />
+      )}
       <form
         onSubmit={handleSubmit}
         className="bg-[#363131] w-2/5 focus:outline-none rounded-full text-offwhite flex justify-between"
       >
+        {hiddenFileInput()}
+
+        <img
+          src="/plus-circle.svg"
+          className="ml-3 cursor-pointer"
+          alt="Add File"
+          height={35}
+          width={35}
+          onClick={handleFileUploadClick}
+        />
         <input
           type="text"
           name="query"

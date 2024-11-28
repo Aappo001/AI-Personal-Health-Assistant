@@ -1,6 +1,11 @@
 import { useContext, useState } from "react";
 import useUserStore from "../store/hooks/useUserStore";
 import { WebsocketContext } from "./Chat";
+import FileAttachment from "./FileAttachment";
+import { uploadAttachment } from "../utils/utils";
+import useFileAttachment from "../store/hooks/useFileAttachment";
+import { UploadAttachment } from "../types";
+import { wsSendMessage } from "../utils/ws-utils";
 
 export const ChatHome = () => {
   const user = useUserStore();
@@ -8,14 +13,25 @@ export const ChatHome = () => {
   //@ts-expect-error awaiting implementation
   const [selectedModel, setSelectedModel] = useState(3);
   const ws = useContext(WebsocketContext);
+  const { attachment, hiddenFileInput, handleFileUploadClick, resetFile } =
+    useFileAttachment();
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
   };
 
-  const handleSubmit = (e: React.ChangeEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.ChangeEvent<HTMLFormElement>) => {
     e.preventDefault();
-    ws.handleSendMessage(query, undefined, selectedModel);
+    let file_id: number | undefined;
+    let messageAttachment: UploadAttachment | undefined;
+    if (attachment.fileData) {
+      file_id = await uploadAttachment(attachment);
+      messageAttachment = {
+        id: file_id,
+        name: attachment.fileName,
+      };
+    }
+    ws.handleSendMessage(query, undefined, selectedModel, messageAttachment);
     setQuery("");
   };
 
@@ -27,17 +43,29 @@ export const ChatHome = () => {
             ? `Hello ${user.username}, how can I help you today`
             : "How can I help you today?"}
         </h1>
+        {attachment.fileName && (
+          <FileAttachment fileName={attachment.fileName} handleFileClear={resetFile} />
+        )}
         <form
           onSubmit={handleSubmit}
           className="bg-[#363131] w-1/2 focus:outline-none rounded-full text-offwhite flex justify-between"
         >
+          {hiddenFileInput()}
+          <img
+            src="/plus-circle.svg"
+            className="ml-3 cursor-pointer"
+            alt="Add File"
+            height={35}
+            width={35}
+            onClick={handleFileUploadClick}
+          />
           <input
             type="text"
             name="query"
             onChange={handleQueryChange}
             value={query}
             placeholder="Enter question"
-            className="px-8 py-5 focus:outline-none bg-transparent placeholder:text-offwhite placeholder:text-lg w-5/6"
+            className="px-8 py-5 pl-4 focus:outline-none bg-transparent placeholder:text-offwhite placeholder:text-lg w-5/6"
           />
           <button
             type="submit"

@@ -1,3 +1,5 @@
+import { UploadAttachment } from "../types";
+
 export const wsSendFriendRequest = (ws: WebSocket, friendId: number, accept: boolean) => {
     ws.send(
         JSON.stringify({
@@ -56,13 +58,14 @@ export const wsRequestFriendRequests = (ws: WebSocket) => {
     }))
 }
 
-export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: number, aiModel?: number) => {
+export const wsSendMessage = (ws: WebSocket, message: string, conversationId?: number, aiModel?: number, attachment?: UploadAttachment) => {
       ws.send(
         JSON.stringify({
           type: "SendMessage",
           message: message.trim() ? message : null,
           conversationId: conversationId,
-          aiModelId: aiModel
+          aiModelId: aiModel,
+          attachment: attachment
         })
       );
 }

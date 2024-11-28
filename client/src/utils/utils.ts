@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from "axios";
 import { implicitLoginSchema, publicUserSchema } from "../schemas";
-import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser } from "../types";
+import { RegisterBody, ServerResponse, ErrorResponse, SessionUser, PublicUser, FileUpload } from "../types";
 
 export const BASE_URL = import.meta.env.DEV ? "http://localhost:3000" : "";
 
@@ -99,6 +99,33 @@ export const getUserFromId = async (id: number): Promise<PublicUser | undefined>
   }
 
   return user.data
+}
+
+export const uploadAttachment = async (attachment: FileUpload): Promise<number> => {
+  const jwt = getJwt()
+  if(!jwt) throw new Error("User is unauthorized: No JWT")
+
+  const response = await fetch("http://localhost:3000/api/upload", {
+    method: "POST",
+    body: JSON.stringify(attachment),
+    headers: {
+      "Content-Type": "application/json",
+      "authorization": `Bearer ${jwt}`
+    }
+  })
+
+  if(!response.ok) {
+    throw new Error("Error uploading file")
+  }
+
+  const result = await response.json()
+
+  // const result = uploadSchema.safeParse(await response.json())
+  // if(!result.success) {
+  //   throw new Error(`Error parsing file: ${result.error}`)
+  // }
+
+  return result.id
 }
 
 const mainColors = [

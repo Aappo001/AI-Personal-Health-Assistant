@@ -20,7 +20,8 @@ export const publicUserSchema = z.object({
   id: z.number(),
   username: z.string(),
   firstName: z.string(),
-  lastName: z.string()
+  lastName: z.string(),
+  imagePath: z.string().optional()
 })
 
 export const implicitLoginSchema = sessionUserSchema
@@ -86,4 +87,9 @@ export const requestFriendsSchema = z.object({
   type: z.literal("FriendData"),
   id: z.number(),
   createdAt: z.string()
+})
+
+export const uploadSchema = z.object({
+  message: z.string(),
+  id: z.number()
 })

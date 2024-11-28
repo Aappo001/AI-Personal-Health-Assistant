@@ -31,7 +31,7 @@ import {
   updateTitle,
 } from "../conversationSlice";
 import { Rootstate } from "../store";
-import { Friend } from "../../types";
+import { Friend, UploadAttachment } from "../../types";
 import { useSelector } from "react-redux";
 
 export default function useWebsocketSetup() {
@@ -66,10 +66,10 @@ export default function useWebsocketSetup() {
 
       if (!socketRef.current) return;
 
-      console.log("Received websocket response");
       switch (type) {
         case SocketResponse.Message:
-          console.log(`Received message from user ${data.userId}`);
+          console.log(`Received message from ${data.userId ? `User ${data.userId}` : "AI"}`);
+          console.log(data);
 
           // This only throws an error if the conversation is not initialized
           try {
@@ -80,6 +80,8 @@ export default function useWebsocketSetup() {
                   userId: data.userId,
                   content: data.message,
                   fromAi: !data.userId,
+                  filePath: data.filePath,
+                  fileName: data.fileName,
                   streaming: false,
                 },
               })
@@ -95,6 +97,8 @@ export default function useWebsocketSetup() {
                     userId: data.userId,
                     content: data.message,
                     fromAi: !data.userId,
+                    filePath: data.filePath,
+                    fileName: data.fileName,
                     streaming: false,
                   },
                 })
@@ -155,7 +159,6 @@ export default function useWebsocketSetup() {
 
         case SocketResponse.Conversation:
           console.log(`User present in conversation with id ${data.id}`);
-          console.log(JSON.stringify(data));
 
           dispatch(initializeConversation({ id: data.id, title: data.title }));
           wsRequestMessages(socketRef.current, data.id);
@@ -215,12 +218,12 @@ export default function useWebsocketSetup() {
   }, []);
 
   return {
-    handleSendMessage: (message: string, conversationId?: number, aiModel?: number) => {
+    handleSendMessage: (message: string, conversationId?: number, aiModel?: number, attachment?: UploadAttachment) => {
       if (!socketRef.current) {
         console.error(`Tried to send message ${message} while WS is null`);
         return;
       }
-      wsSendMessage(socketRef.current, message, conversationId, aiModel);
+      wsSendMessage(socketRef.current, message, conversationId, aiModel, attachment);
     },
 
     sendFriendRequest: (username: string, accept: boolean) => {

@@ -70,7 +70,6 @@ const conversationSlice = createSlice({
             // the conversation.
             const msgIdx = findReversed(currentConvo, (msg) => msg.fromAi && msg.streaming && msg.querierId == querierId)
 
-            console.log(`msgIdx: ${msgIdx}`, currentConvo)
             if (msgIdx != null) {
                 currentConvo[msgIdx].content += message ? message : ""
                 currentConvo[msgIdx].streaming = aiMessage.streaming
