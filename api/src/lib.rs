@@ -33,6 +33,7 @@ use reqwest::{
 use std::{
     collections::HashSet,
     fmt::Debug,
+    hash::{Hash, Hasher},
     net::SocketAddr,
     ops::Deref,
     str::FromStr,
@@ -55,7 +56,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
     SqlitePool,
 };
-use tokio::{net::TcpListener, sync::broadcast::Sender, task::JoinHandle};
+use tokio::{net::TcpListener, sync::broadcast, task::JoinHandle};
 use tracing::info;
 use upload::{upload_file, upload_profile_image};
 use users::{
@@ -89,7 +90,7 @@ pub struct AppState {
     /// who are focused on that conversation.
     /// Using a RwLock to allow multiple users to be focused on the same
     /// conversation without having to clone the underlying HashSet.
-    conversation_connections: Arc<HashMap<i64, HashSet<(i64, usize)>>>,
+    conversation_connections: Arc<HashMap<i64, HashSet<Sender<SocketResponse>>>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pool: SqlitePool,
@@ -97,6 +98,45 @@ pub struct AppState {
     stemmer: Arc<Stemmer>,
     // Maybe add a `Arc<HashSet<i64>>` to keep track of the conversation ids
     // that the AI is currently generating messages for.
+}
+
+#[derive(Clone, Debug)]
+pub struct Sender<T> {
+    channel: broadcast::Sender<T>,
+    user_id: Arc<i64>,
+    pub conn_id: usize,
+}
+
+impl<T> Eq for Sender<T> {}
+
+impl<T> PartialEq for Sender<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.channel.same_channel(&other.channel)
+    }
+}
+
+impl<T> Hash for Sender<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.user_id.deref(), self.conn_id).hash(state);
+    }
+}
+
+impl<T> Deref for Sender<T> {
+    type Target = broadcast::Sender<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.channel
+    }
+}
+
+impl<T> Sender<T> {
+    pub fn new(sender: broadcast::Sender<T>, user_id: i64, conn_id: usize) -> Self {
+        Self {
+            channel: sender,
+            user_id: Arc::new(user_id),
+            conn_id,
+        }
+    }
 }
 
 /// Wrapper around the `rust_stemmers::Stemmer` struct to allow it to be used in the `AppState`.

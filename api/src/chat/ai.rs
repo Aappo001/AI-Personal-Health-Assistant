@@ -15,9 +15,8 @@ use tracing::debug;
 use crate::{
     error::{AppError, AppJson},
     users::UserToken,
-    AppState,
+    AppState, Sender,
 };
-use tokio::sync::broadcast::Sender;
 
 use super::{SendMessage, SocketResponse};
 

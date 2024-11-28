@@ -28,7 +28,7 @@ use crate::{
     chat::{query_model, search::search_message, Conversation, ConversationUser},
     error::{AppError, ErrorResponse},
     users::{authorize_user, UserToken},
-    AppState, ConnectionState, InnerConnection, IDLE_TIMEOUT,
+    AppState, ConnectionState, InnerConnection, Sender, IDLE_TIMEOUT,
 };
 
 use super::{
@@ -382,12 +382,12 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
     let user = Arc::new(user);
 
     // Create the connection state for the user
-    let inner_connection = InnerConnection {
-        channel: broadcast::channel(10).0,
+    let mut connection = InnerConnection {
+        channel: Sender::new(broadcast::channel(10).0, user.id, 0),
         focused_conversation: Arc::new(AtomicI64::new(0)),
     };
 
-    let (connection_id, connection) = match state.user_sockets.get_async(&user.id).await {
+    let connection_id = match state.user_sockets.get_async(&user.id).await {
         // The user has other active connections
         Some(mut conn) => {
             let conn_id = match conn.connections.iter().position(|x| x.is_none()) {
@@ -397,13 +397,14 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                     return;
                 }
             };
-            conn.connections[conn_id] = Some(inner_connection.clone());
-            (conn_id, inner_connection)
+            connection.channel.conn_id = conn_id;
+            conn.connections[conn_id] = Some(connection.clone());
+            conn_id
         }
         // First time the user has connected to the server
         None => {
             let mut connections = [const { None }; 10];
-            connections[0] = Some(inner_connection.clone());
+            connections[0] = Some(connection.clone());
             let _ = state
                 .user_sockets
                 .insert_async(
@@ -427,7 +428,7 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                 let user_id = user.id;
                 async move { emit_user_status(&state, user_id, OnlineStatus::Online).await }
             });
-            (0, inner_connection)
+            0
         }
     };
 
@@ -499,15 +500,8 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                                     .last_sent_at
                                     .store(now.timestamp_millis(), Ordering::SeqCst);
                                 // Handle the received message
-                                if let Err(e) = handle_message(
-                                    msg,
-                                    &state,
-                                    &user,
-                                    &socket,
-                                    &connection,
-                                    connection_id,
-                                )
-                                .await
+                                if let Err(e) =
+                                    handle_message(msg, &state, &user, &socket, &connection).await
                                 {
                                     error!("Error handling message: {}", e);
                                     let _ =
@@ -544,7 +538,7 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
         .get_async(&connection.focused_conversation.load(Ordering::Relaxed))
         .await
     {
-        set.get_mut().remove(&(user.id, connection_id));
+        set.get_mut().remove(&connection.channel);
     }
 
     // Remove the user from the connection once all the tasks are
@@ -631,18 +625,10 @@ async fn emit_user_status(
         else {
             continue;
         };
-        // Get the sender handle for each connection
-        for (user_id, connection_id) in connections.iter() {
-            let Some(Some(conn)) = state
-                .user_sockets
-                .read_async(user_id, |_, v| v.connections[*connection_id].clone())
-                .await
-            else {
-                continue;
-            };
-            // Send the updated status
-            conn.channel.send(SocketResponse::UserStatus {
-                user_id: *user_id,
+
+        for sender in connections.iter() {
+            sender.send(SocketResponse::UserStatus {
+                user_id,
                 status: status.clone(),
             })?;
         }
@@ -1058,7 +1044,6 @@ async fn handle_message(
     user: &UserToken,
     socket: &ConnectionState,
     inner: &InnerConnection,
-    connection_id: usize,
 ) -> Result<(), AppError> {
     match msg {
         Message::Text(text) => {
@@ -1327,7 +1312,7 @@ async fn handle_message(
                                     .conversation_connections
                                     .get_async(&last_focused_conversation)
                                 .await {
-                                    set.get_mut().remove(&(user.id, connection_id));
+                                    set.get_mut().remove(&inner.channel);
                                     if set.is_empty() {
                                         // Drop the set to prevent deadlock
                                         // This will deadlock if the set is not dropped
@@ -1350,14 +1335,14 @@ async fn handle_message(
                                 .get_async(&conversation_id)
                             .await {
                                 Some(mut entry) => {
-                                    entry.get_mut().insert((user.id, connection_id));
+                                    entry.get_mut().insert(inner.channel.clone());
                                 }
                                 None => {
                                     let _ = state
                                         .conversation_connections
                                         .insert_async(
                                             conversation_id,
-                                            HashSet::from([(user.id, connection_id)]),
+                                            HashSet::from([inner.channel.clone()]),
                                         )
                                     .await;
                                 }
