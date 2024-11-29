@@ -14,8 +14,8 @@ use tracing::debug;
 
 use crate::{
     error::{AppError, AppJson},
+    state::{AppState, Sender},
     users::UserToken,
-    AppState, Sender,
 };
 
 use super::{SendMessage, SocketResponse};
