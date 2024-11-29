@@ -27,8 +27,9 @@ use tracing::{error, info, instrument, warn};
 use crate::{
     chat::{query_model, search::search_message, Conversation, ConversationUser},
     error::{AppError, ErrorResponse},
+    state::{AppState, ConnectionState, InnerConnection, Sender},
     users::{authorize_user, UserToken},
-    AppState, ConnectionState, InnerConnection, Sender, IDLE_TIMEOUT,
+    IDLE_TIMEOUT,
 };
 
 use super::{
@@ -363,12 +364,7 @@ pub async fn get_user_status(state: &AppState, user_id: i64) -> OnlineStatus {
 
     // If the user has sent a message within the last IDLE_TIMEOUT duration, they are online, but
     // idle
-    if unsafe {
-        DateTime::from_timestamp_millis(conn_state.last_sent_at.load(Ordering::SeqCst))
-            .unwrap_unchecked()
-    } + IDLE_TIMEOUT
-        > Utc::now()
-    {
+    if conn_state.is_idle() {
         return OnlineStatus::Idle;
     }
 
@@ -482,23 +478,13 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                             Ok(msg) => {
                                 // Check if the user was idle and update their status so they are
                                 // no longer idle
-                                let now = Utc::now();
-                                if unsafe {
-                                    DateTime::from_timestamp_millis(
-                                        socket.last_sent_at.load(Ordering::SeqCst),
-                                    )
-                                    .unwrap_unchecked()
-                                } + IDLE_TIMEOUT
-                                    > now
-                                {
+                                if socket.is_idle() {
                                     let _ = emit_user_status(&state, user.id, OnlineStatus::Online)
                                         .await;
                                 }
 
                                 // Update the timestamp of the last sent message for idle checking
-                                socket
-                                    .last_sent_at
-                                    .store(now.timestamp_millis(), Ordering::SeqCst);
+                                socket.update_last_sent();
                                 // Handle the received message
                                 if let Err(e) =
                                     handle_message(msg, &state, &user, &socket, &connection).await
@@ -1520,6 +1506,7 @@ async fn handle_message(
         }
         // We do not need to handle ping or close messages
         // because tokio_tungstenite will handle them for us
+        #[allow(clippy::wildcard_in_or_patterns)]
         Message::Ping(_) | Message::Close(_) | _ => (),
     }
     Ok(())

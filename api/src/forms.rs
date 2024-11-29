@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     auth::JwtAuth,
     error::{AppError, AppJson},
+    state::AppState,
     users::UserToken,
-    AppState,
 };
 
 #[derive(Serialize, Deserialize)]

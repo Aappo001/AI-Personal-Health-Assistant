@@ -5,7 +5,7 @@ use serde::Deserialize;
 use sqlx::{QueryBuilder, Sqlite};
 use tokio::sync::broadcast::Sender;
 
-use crate::{chat::ChatMessage, error::AppError, AppState};
+use crate::{chat::ChatMessage, error::AppError, state::AppState};
 
 use super::SocketResponse;
 
