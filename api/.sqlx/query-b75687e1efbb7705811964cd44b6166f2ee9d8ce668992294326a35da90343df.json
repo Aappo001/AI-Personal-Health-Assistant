@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM messages WHERE id = ? RETURNING id as message_id, conversation_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "message_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "conversation_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b75687e1efbb7705811964cd44b6166f2ee9d8ce668992294326a35da90343df"
+}

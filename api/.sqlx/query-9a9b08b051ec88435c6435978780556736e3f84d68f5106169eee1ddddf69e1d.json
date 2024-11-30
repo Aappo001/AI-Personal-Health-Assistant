@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM friend_requests WHERE (sender_id = ? or sender_id = ?) AND (receiver_id = ? or receiver_id = ?) RETURNING *",
+  "describe": {
+    "columns": [
+      {
+        "name": "sender_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "receiver_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 2,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9a9b08b051ec88435c6435978780556736e3f84d68f5106169eee1ddddf69e1d"
+}

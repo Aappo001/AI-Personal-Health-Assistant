@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT * FROM friendships WHERE user1_id = ? OR user2_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "user1_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "user2_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 2,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ac47ecabbd2e4f8d7cb4a37f2be2d37651b0c38f619cc4737302d774bdbbb0a5"
+}

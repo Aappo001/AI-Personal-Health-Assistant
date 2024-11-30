@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM friend_requests WHERE sender_id = ? AND receiver_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "04bede891a28a2fb080bda9ec73c76854890531733996b182cb36af26b0a5df0"
+}

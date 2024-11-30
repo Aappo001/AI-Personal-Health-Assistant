@@ -1,4 +1,9 @@
-use std::{env::current_dir, fs::File, io::Write, path::PathBuf};
+use std::{
+    env::{self, current_dir},
+    fs::File,
+    io::Write,
+    path::PathBuf,
+};
 
 use dotenvy::{dotenv, var};
 use sqlx::SqlitePool;
@@ -15,6 +20,10 @@ const PROTOCOL: &str = "sqlite://";
 // generate the necessary structs
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if !env::var("BUILD_ENABLED").map(|v| v == "1").unwrap_or(false) {
+        return Ok(())
+    }
+
     println!("cargo:rerun-if-changed=migrations");
     let db_file = match dotenv() {
         Ok(_) => PathBuf::from(match var("DATABASE_URL") {

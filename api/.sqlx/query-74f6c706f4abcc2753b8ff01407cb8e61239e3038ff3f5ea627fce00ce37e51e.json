@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE messages SET message = ?, stemmed_message = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "74f6c706f4abcc2753b8ff01407cb8e61239e3038ff3f5ea627fce00ce37e51e"
+}

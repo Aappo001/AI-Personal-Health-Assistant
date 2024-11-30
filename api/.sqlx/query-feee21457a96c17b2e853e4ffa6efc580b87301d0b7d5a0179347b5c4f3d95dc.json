@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT email FROM users WHERE email = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "email",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "feee21457a96c17b2e853e4ffa6efc580b87301d0b7d5a0179347b5c4f3d95dc"
+}
