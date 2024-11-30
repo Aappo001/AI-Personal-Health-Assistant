@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use dotenvy_macro::dotenv;
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use macros::response;
 use password_auth::VerifyError;
@@ -20,7 +21,9 @@ use validator::{Validate, ValidationError, ValidationErrorsKind};
 
 use crate::{
     auth::JwtAuth,
+    chat::{get_user_status, OnlineStatus},
     error::{AppError, AppJson, AppValidate},
+    state::AppState,
 };
 
 /// The data required to create a new user
@@ -276,10 +279,15 @@ pub async fn authenticate_user(
 ) -> Result<Response, AppError> {
     user_data.app_validate()?;
 
-    let Some(existing_user) =
-        sqlx::query!("SELECT users.id, username, email, first_name, last_name, password_hash, path as image_path FROM users LEFT JOIN files ON users.image_id = files.id WHERE username = ?", user_data.username)
-            .fetch_optional(&pool)
-            .await?
+    let Some(existing_user) = sqlx::query!(
+        "SELECT users.id, username, email, first_name, last_name,
+            password_hash, path as image_path FROM users
+            LEFT JOIN files ON users.image_id = files.id
+            WHERE username = ?",
+        user_data.username
+    )
+    .fetch_optional(&pool)
+    .await?
     else {
         return Err(AppError::UserError((
             StatusCode::UNAUTHORIZED,
@@ -353,7 +361,9 @@ pub async fn get_user_from_token(
 ) -> Result<Response, AppError> {
     let Some(user) = sqlx::query_as!(
         SessionUser,
-        "SELECT users.id, username, email, first_name, last_name, path as image_path FROM users LEFT JOIN files ON users.image_id = files.id WHERE users.id = ?",
+        "SELECT users.id, username, email, first_name, last_name, path as image_path
+        FROM users LEFT JOIN files ON users.image_id = files.id
+        WHERE users.id = ?",
         user.id
     )
     .fetch_optional(&pool)
@@ -400,18 +410,18 @@ pub struct PublicUser {
     pub last_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_path: Option<String>,
+    pub status: Option<OnlineStatus>,
 }
 
 pub async fn get_user_by_id(
-    State(pool): State<SqlitePool>,
+    State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
-    let Some(user) = sqlx::query_as!(
-        PublicUser,
+    let Some(user) = sqlx::query!(
         "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE users.id = ?",
         id
     )
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await?
     else {
         return Err(AppError::UserError((
@@ -420,19 +430,31 @@ pub async fn get_user_by_id(
         )));
     };
 
-    Ok((StatusCode::OK, AppJson(user)).into_response())
+    Ok((
+        StatusCode::OK,
+        AppJson(PublicUser {
+            id,
+            username: user.username,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            image_path: user.image_path,
+            status: Some(get_user_status(&state, id).await),
+        }),
+    )
+        .into_response())
 }
 
 pub async fn get_user_by_username(
-    State(pool): State<SqlitePool>,
+    State(state): State<AppState>,
     Path(username): Path<String>,
 ) -> Result<Response, AppError> {
-    let Some(user) = sqlx::query_as!(
-        PublicUser,
-        "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE username = ?",
+    let Some(user) = sqlx::query!(
+        "SELECT users.id, username, first_name, last_name, path as image_path FROM users
+        LEFT JOIN files ON files.id = users.image_id
+        WHERE username = ?",
         username
     )
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await?
     else {
         return Err(AppError::UserError((
@@ -441,7 +463,18 @@ pub async fn get_user_by_username(
         )));
     };
 
-    Ok((StatusCode::OK, AppJson(user)).into_response())
+    Ok((
+        StatusCode::OK,
+        AppJson(PublicUser {
+            id: user.id,
+            username: user.username,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            image_path: Some(user.image_path),
+            status: Some(get_user_status(&state, user.id).await),
+        }),
+    )
+        .into_response())
 }
 
 pub async fn update_user(
@@ -472,18 +505,24 @@ pub async fn update_user(
 
     // Update the user in the database
     sqlx::query!(
-        "UPDATE users SET first_name = ?, last_name = ?, email = ?, username = ?, image_id = ? WHERE id = ?",
+        "UPDATE users SET first_name = ?, last_name = ?, email = ?,
+        username = ?, image_id = ? WHERE id = ?",
         user_data.first_name,
         user_data.last_name,
         user_data.email,
         user_data.username,
         user_data.image_id,
         user.id
-    ).execute(&pool).await?;
+    )
+    .execute(&pool)
+    .await?;
 
     let user = sqlx::query_as!(
         SessionUser,
-        "SELECT users.id as id, username, first_name, last_name, email, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE users.id = ?",
+        "SELECT users.id as id, username, first_name, last_name, email,
+        path as image_path FROM users
+        LEFT JOIN files ON files.id = users.image_id
+        WHERE users.id = ?",
         user.id
     )
     .fetch_one(&pool)
@@ -508,9 +547,15 @@ pub async fn update_user(
 }
 
 async fn check_image(pool: &SqlitePool, image_id: i64, user_id: i64) -> Result<(), AppError> {
-    let query = sqlx::query!("SELECT id, profile_image FROM files JOIN file_uploads ON files.id = file_uploads.file_id WHERE id = ? AND user_id = ?", image_id, user_id)
-        .fetch_optional(pool)
-        .await?;
+    let query = sqlx::query!(
+        "SELECT id, profile_image FROM files
+        JOIN file_uploads ON files.id = file_uploads.file_id
+        WHERE id = ? AND user_id = ?",
+        image_id,
+        user_id
+    )
+    .fetch_optional(pool)
+    .await?;
     // Check if the file is uploaded by the user and is an image uploaded as a profile image
     match query.and_then(|row| row.profile_image) {
         Some(val) if val => Ok(()),
@@ -572,12 +617,25 @@ pub async fn search_users(
     Path(username): Path<String>,
 ) -> Result<Response, AppError> {
     let username_query = format!("%{}%", username);
-    let query = sqlx::query_as!(
-        PublicUser,
-        "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE username LIKE ?",
+    let query: Vec<PublicUser> = sqlx::query!(
+        "SELECT users.id, username, first_name, last_name, path as image_path FROM users
+        LEFT JOIN files ON files.id = users.image_id
+        WHERE username LIKE ?",
         username_query
     )
-    .fetch_all(&pool)
+    .fetch(&pool)
+    .map(|row| {
+        row.map(|row| PublicUser {
+            id: row.id,
+            username: row.username,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            image_path: row.image_path,
+            status: None,
+        })
+    })
+    .try_collect()
+    .boxed()
     .await?;
 
     Ok((StatusCode::OK, AppJson(query)).into_response())
