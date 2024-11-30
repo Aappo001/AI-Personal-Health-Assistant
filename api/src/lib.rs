@@ -67,6 +67,7 @@ pub const PROTOCOL: &str = "sqlite:///";
 pub const PROTOCOL: &str = "sqlite://";
 
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+pub const MAX_MESSAGE_LEN: usize = 5_000;
 
 /// Start the server and listen for incoming connections.
 pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {

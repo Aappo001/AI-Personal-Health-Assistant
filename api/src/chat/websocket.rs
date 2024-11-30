@@ -29,7 +29,7 @@ use crate::{
     error::{AppError, ErrorResponse},
     state::{AppState, ConnectionState, InnerConnection, Sender},
     users::{authorize_user, UserToken},
-    IDLE_TIMEOUT,
+    IDLE_TIMEOUT, MAX_MESSAGE_LEN,
 };
 
 use super::{
@@ -559,7 +559,10 @@ async fn request_messages(
     .await?
     .is_none()
     {
-        return Err(anyhow!("User is not in the conversation").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "User is not in the conversation".into(),
+        )));
     }
 
     let limit = request.message_num.unwrap_or(50);
@@ -631,9 +634,27 @@ async fn save_message(
 ) -> Result<ChatMessage, AppError> {
     // If the conversation_id is None, this is the first message in a conversation
     // so create a new conversation and get the id
-    let Some(ref message_content) = message.message else {
-        return Err(anyhow!("Message cannot be empty").into());
+    let stemmed_message = match (&message.message, &message.attachment) {
+        // The message does not contain any content
+        (None, None) => {
+            return Err(AppError::UserError((
+                StatusCode::BAD_REQUEST,
+                "Message cannot be empty".into(),
+            )))
+        }
+        // Check if the message is too long and stem it if it is not
+        (Some(message_content), _) => {
+            if message_content.chars().count() > MAX_MESSAGE_LEN {
+                return Err(AppError::UserError((
+                    StatusCode::BAD_REQUEST,
+                    "Message too long".into(),
+                )));
+            }
+            Some(state.stemmer.stem_message(message_content))
+        }
+        _ => None,
     };
+
     let conversation_id = match message.conversation_id {
         Some(k) => k,
         None => create_conversation(&state.pool, message, user).await?.id,
@@ -648,7 +669,10 @@ async fn save_message(
     .await?
     .is_none()
     {
-        return Err(anyhow!("User is not in the conversation").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "User is not in the conversation".into(),
+        )));
     }
 
     if let Some(attachment) = &message.attachment {
@@ -661,8 +685,6 @@ async fn save_message(
         .await?
         .ok_or_else(|| anyhow!("Image not found"))?;
     }
-
-    let stemmed_message = state.stemmer.stem_message(message_content);
 
     let message_id = match &message.attachment {
         Some(attachment) => {
@@ -711,12 +733,18 @@ async fn edit_message(
         .fetch_optional(&state.pool)
         .await?
     else {
-        return Err(anyhow!("Message not found").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "Message not found".into(),
+        )));
     };
 
     // Check if the user has permission to edit the message
     if message_user.user_id != Some(user.id) {
-        return Err(anyhow!("User does not have permission to edit message").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "User does not have permission to edit message".into(),
+        )));
     }
 
     let stemmed_message = state.stemmer.stem_message(&message.message);
@@ -752,11 +780,17 @@ async fn delete_message(
         .fetch_optional(pool)
         .await?
     else {
-        return Err(anyhow!("Message not found").into());
+        return Err(AppError::UserError((
+            StatusCode::BAD_REQUEST,
+            "Message not found".into(),
+        )));
     };
     // Check if the user has permission to delete the message
     if message.user_id != Some(user.id) {
-        return Err(anyhow!("User does not have permission to delete message").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "User does not have permission to delete message".into(),
+        )));
     }
     // Delete the message from the database
     Ok(sqlx::query_as!(
@@ -784,7 +818,10 @@ async fn handle_friend_request(
         std::cmp::Ordering::Less => (user.id, other_user_id),
         std::cmp::Ordering::Greater => (other_user_id, user.id),
         std::cmp::Ordering::Equal => {
-            return Err(anyhow!("User cannot send friend request to themselves").into())
+            return Err(AppError::UserError((
+                StatusCode::FORBIDDEN,
+                "User cannot send friend request to themselves".into(),
+            )))
         }
     };
 
@@ -797,7 +834,10 @@ async fn handle_friend_request(
     .await?
     .is_some()
     {
-        return Err(anyhow!("Users are already friends").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "Users are already friends".into(),
+        )));
     }
 
     let friend_request = if accept {
@@ -812,7 +852,10 @@ async fn handle_friend_request(
         .await?
         .is_some()
         {
-            return Err(anyhow!("Friend request already exists").into());
+            return Err(AppError::UserError((
+                StatusCode::CONFLICT,
+                "Friend request already exists".into(),
+            )));
         }
         // Everything is good so check if we are accepting an existing incoming
         // friend request or sending a new outgoing friend request
@@ -883,7 +926,7 @@ async fn handle_friend_request(
         )
             .fetch_optional(&state.pool)
             .await? else {
-            return Err(anyhow!("Friend request does not exist").into());
+            return Err(AppError::UserError((StatusCode::NOT_FOUND, "Friend request does not exist".into())));
         };
         SocketResponse::FriendRequest {
             sender_id: friend_request.sender_id,
@@ -939,7 +982,7 @@ async fn invite_user(
                 .await?
                 .is_none()
             {
-                return Err(anyhow!("Inviter is not in the conversation").into());
+                return Err(AppError::UserError((StatusCode::FORBIDDEN, "Inviter is not in the conversation".into())));
             }
             conversation_id
         }
@@ -979,7 +1022,10 @@ async fn invite_user(
     // If the number of rows returned is not equal to the number of users being invited
     // then at least one user does not exist
     if num_rows != invitees.len() {
-        return Err(anyhow!("One or more users do not exist").into());
+        return Err(AppError::UserError((
+            StatusCode::NOT_FOUND,
+            "One or more users do not exist".into(),
+        )));
     }
 
     // Use a query builder to invite all the users at once instead of multiple
@@ -1044,17 +1090,17 @@ async fn handle_message(
                         .conversation_id
                         .is_some_and(|id| id == socket.ai_responding.load(Ordering::SeqCst))
                     {
-                        return Err(anyhow!("AI generation is already in progress. Please cancel generation in this conversation or wait until it is complete").into());
+                        return Err(AppError::UserError((StatusCode::TOO_MANY_REQUESTS, "AI generation is already in progress. Please cancel generation or wait before making another query".into())));
                     }
 
-                    let chat_message = match send_message.message {
+                    let chat_message = match (&send_message.message, &send_message.attachment) {
+                        (None, None) => None,
                         // Only save the message if it is not empty
-                        Some(_) => {
+                        _ => {
                             let chat_message = save_message(state, &send_message, user).await?;
                             send_message.conversation_id = Some(chat_message.conversation_id);
                             Some(chat_message)
                         }
-                        None => None,
                     };
 
                     // `tokio::join!` allows us to run multiple futures to completion at the same time
@@ -1081,13 +1127,14 @@ async fn handle_message(
                             // already an AI generation in progress in any conversation they are a part of
                             // and prevent them from starting a new one
                             if socket.ai_responding.load(Ordering::SeqCst) != 0 {
-                                return Err(anyhow!("AI generation is already in progress. Please cancel generation or wait before making another query").into());
+                                return Err(AppError::UserError((StatusCode::TOO_MANY_REQUESTS, "AI generation is already in progress. Please cancel generation or wait before making another query".into())));
                             }
 
                             socket.ai_responding.store(
-                                send_message.conversation_id.ok_or(anyhow!(
-                                    "Cannot send ai message in non-existant conversation!"
-                                ))?,
+                                send_message.conversation_id.ok_or(AppError::UserError((
+                                    StatusCode::BAD_REQUEST,
+                                    "Cannot send ai message in non-existant conversation!".into(),
+                                )))?,
                                 Ordering::SeqCst,
                             );
                             // `tokio::select!` is used to wait for either the AI model's
@@ -1259,9 +1306,10 @@ async fn handle_message(
                                 }))?;
                         }
                         None => {
-                            return Err(
-                                anyhow!("User is not in conversation: {}", conversation_id).into()
-                            )
+                            return Err(AppError::UserError((
+                                StatusCode::FORBIDDEN,
+                                "User is not the conversation".into(),
+                            )))
                         }
                     }
 
@@ -1458,7 +1506,11 @@ async fn handle_message(
                             .send(SocketResponse::InternalCanceledGeneration)?;
                     } else {
                         inner.channel.send(SocketResponse::Error(
-                            AppError::from(anyhow!("No ai response to cancel")).into(),
+                            AppError::UserError((
+                                StatusCode::BAD_REQUEST,
+                                "No ai response to cancel".into(),
+                            ))
+                            .into(),
                         ))?;
                     }
                 }
@@ -1600,7 +1652,10 @@ async fn leave_conversation(
     .await?;
 
     if query.rows_affected() == 0 {
-        return Err(anyhow!("User is not in the conversation").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "User is not in the conversation".into(),
+        )));
     }
 
     // Check how many users are left in the conversation
@@ -1637,7 +1692,10 @@ async fn rename_conversation(
     .await?
     .is_none()
     {
-        return Err(anyhow!("User is not in the conversation").into());
+        return Err(AppError::UserError((
+            StatusCode::FORBIDDEN,
+            "User is not in the conversation".into(),
+        )));
     }
     sqlx::query!(
         "UPDATE conversations SET title = ? WHERE id = ?",
