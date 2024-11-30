@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO friendships (user1_id, user2_id) VALUES (?, ?) RETURNING created_at",
+  "describe": {
+    "columns": [
+      {
+        "name": "created_at",
+        "ordinal": 0,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7c4dd6197ed9fa45133066f5e4d6ba318077f76427c1c0908967b4c423c33b2d"
+}

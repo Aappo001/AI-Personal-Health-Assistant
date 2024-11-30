@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT messages.id, message, messages.created_at, modified_at, conversation_id, user_id, ai_model_id,\n            file_name, files.path as file_path FROM messages\n            LEFT JOIN files ON files.id = messages.file_id\n            WHERE conversation_id = ? \n            ORDER BY messages.created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "message",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 2,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "modified_at",
+        "ordinal": 3,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "conversation_id",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "ai_model_id",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "file_name",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_path",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b4182891a9fc493b74a171664b07698cc426d437f48d69af9da7511df06a4b77"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT user1_id FROM friendships WHERE user1_id = ? and user2_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "user1_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dbe362e88efa9699bab2b7302ccb4fd26539e0819051144b04b517f3b7dd8ebd"
+}

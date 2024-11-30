@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?\n        ORDER BY created_at DESC\n        LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "message",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "ai_model_id",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "file_name",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "modified_at",
+        "ordinal": 6,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "conversation_id",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "file_path",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "545722fd2e1348ab06daf4c2b6b8a92fab66d956e688efc924fd3fe56d54ec9d"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id FROM conversations\n            JOIN user_conversations ON user_conversations.conversation_id = conversations.id\n            WHERE id = ? AND user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7bbee67666151dc1e1477b0b2b2eb8d209232423f4527e02ca24fe2a77191095"
+}

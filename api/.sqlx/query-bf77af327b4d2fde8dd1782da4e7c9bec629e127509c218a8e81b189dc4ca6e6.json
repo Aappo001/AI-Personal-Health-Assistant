@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT message, user_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "message",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "username",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "bf77af327b4d2fde8dd1782da4e7c9bec629e127509c218a8e81b189dc4ca6e6"
+}

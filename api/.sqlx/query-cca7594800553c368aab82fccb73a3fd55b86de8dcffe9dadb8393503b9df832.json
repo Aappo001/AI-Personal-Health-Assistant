@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT height, weight, sleep_hours, exercise_duration, food_intake, notes, modified_at FROM user_statistics WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "height",
+        "ordinal": 0,
+        "type_info": "Float"
+      },
+      {
+        "name": "weight",
+        "ordinal": 1,
+        "type_info": "Float"
+      },
+      {
+        "name": "sleep_hours",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "exercise_duration",
+        "ordinal": 3,
+        "type_info": "Float"
+      },
+      {
+        "name": "food_intake",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "notes",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "modified_at",
+        "ordinal": 6,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "cca7594800553c368aab82fccb73a3fd55b86de8dcffe9dadb8393503b9df832"
+}

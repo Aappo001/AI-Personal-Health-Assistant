@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT sender_id FROM friend_requests WHERE sender_id = ? AND receiver_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "sender_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6fea71d9959e8bd153f27569e015ac1089c93d43155bda530f3a86cd6d62eb51"
+}

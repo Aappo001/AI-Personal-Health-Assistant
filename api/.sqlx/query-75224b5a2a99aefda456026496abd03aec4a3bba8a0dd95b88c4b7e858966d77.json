@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT conversation_id FROM user_conversations WHERE user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "conversation_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "75224b5a2a99aefda456026496abd03aec4a3bba8a0dd95b88c4b7e858966d77"
+}

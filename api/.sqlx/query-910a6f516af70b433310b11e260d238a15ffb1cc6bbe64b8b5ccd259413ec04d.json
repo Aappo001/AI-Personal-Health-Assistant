@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO file_uploads (file_id, user_id) VALUES (?, ?) ON CONFLICT DO UPDATE SET file_id = file_id RETURNING file_id as id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "910a6f516af70b433310b11e260d238a15ffb1cc6bbe64b8b5ccd259413ec04d"
+}

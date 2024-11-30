@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, profile_image FROM files\n        JOIN file_uploads ON files.id = file_uploads.file_id\n        WHERE id = ? AND user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "profile_image",
+        "ordinal": 1,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "16fd1bd51e362917bf6eebbd7b03bbf5fe33950a2dd1b5a6b5d9c90b62e55fb6"
+}

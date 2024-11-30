@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT users.id, username, first_name, last_name, path as image_path FROM users LEFT JOIN files ON files.id = users.image_id WHERE users.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "username",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "first_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_path",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "635d6f952eaad301bce24f25b9b0a155480012a18317bae100382f6b4f8eab02"
+}

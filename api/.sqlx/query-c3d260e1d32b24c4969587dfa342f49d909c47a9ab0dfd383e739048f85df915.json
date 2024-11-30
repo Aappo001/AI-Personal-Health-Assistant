@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO files (path, mime, profile_image) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET path = path RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c3d260e1d32b24c4969587dfa342f49d909c47a9ab0dfd383e739048f85df915"
+}

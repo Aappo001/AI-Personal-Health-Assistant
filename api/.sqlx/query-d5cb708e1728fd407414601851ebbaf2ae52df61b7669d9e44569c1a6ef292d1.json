@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE user_settings SET ai_enabled = ?, ai_model_id = ?, theme = ? WHERE user_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "d5cb708e1728fd407414601851ebbaf2ae52df61b7669d9e44569c1a6ef292d1"
+}

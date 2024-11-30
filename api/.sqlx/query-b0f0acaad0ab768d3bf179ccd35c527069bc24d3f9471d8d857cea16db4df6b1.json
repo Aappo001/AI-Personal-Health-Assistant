@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT file_id FROM file_uploads WHERE file_id = ? and user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "file_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b0f0acaad0ab768d3bf179ccd35c527069bc24d3f9471d8d857cea16db4df6b1"
+}
