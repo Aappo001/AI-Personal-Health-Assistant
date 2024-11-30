@@ -32,6 +32,10 @@ use reqwest::header::{self, CONTENT_ENCODING, CONTENT_LENGTH};
 use state::AppState;
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
+use tower_governor::{
+    governor::GovernorConfigBuilder,
+    GovernorLayer,
+};
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
@@ -47,7 +51,7 @@ use sqlx::{
     SqlitePool,
 };
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{info, Level};
 use upload::{upload_file, upload_profile_image};
 use users::{
     authenticate_user, check_email, check_username, create_user, delete_user, get_settings,
@@ -93,13 +97,31 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
 
     let sensitive_headers: Arc<[_]> = [header::AUTHORIZATION, header::COOKIE].into();
 
+    // Rate limit the number of requests a given IP can make within a time period
+    // In this case, the time period is 500ms and the burst size is 20 requests.
+    // This means that a given IP can make up to 20 requests at once before
+    // needing to wait for 500ms before sending another request. They can make
+    // and extra request for every 500ms they go without sending a request
+    // until a maximum of 20 requests are reached.
+    let ip_governor_config = Arc::new(unsafe {
+        GovernorConfigBuilder::default()
+            .const_period(Duration::from_millis(500))
+            .burst_size(20)
+            .finish()
+            .unwrap_unchecked()
+    });
+
     let middleware = ServiceBuilder::new()
         // Mark the `Authorization` and `Cookie` headers as sensitive so it doesn't show in logs
         .sensitive_request_headers(sensitive_headers.clone())
         // Add high level tracing/logging to all requests
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().include_headers(true))
+                .make_span_with(
+                    DefaultMakeSpan::new()
+                        .level(Level::TRACE)
+                        .include_headers(true),
+                )
                 .on_response(
                     DefaultOnResponse::new()
                         .include_headers(true)
@@ -107,10 +129,17 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
                 ),
         )
         .sensitive_response_headers(sensitive_headers)
+        // GovernorLayer is a rate limiter that limits the number of requests a user can make
+        // within a given time period. This is used to prevent abuse/attacks on the server.
+        // This is safe to use because the it is only none if the period or burst size is 0.
+        // Neither of which are the case here.
         // Set a timeout
         .layer(TimeoutLayer::new(Duration::from_secs(15)))
         // Compress responses
         .compression()
+        .layer(GovernorLayer {
+            config: ip_governor_config,
+        })
         // Set a `Content-Type` if there isn't one already.
         .insert_response_header_if_not_present(
             header::CONTENT_TYPE,
