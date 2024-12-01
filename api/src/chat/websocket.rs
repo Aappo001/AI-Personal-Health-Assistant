@@ -19,7 +19,11 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{future, stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
+use futures::{
+    future,
+    stream::{FuturesUnordered, SplitSink},
+    FutureExt, SinkExt, StreamExt, TryStreamExt,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
 use tokio::sync::mpsc;
@@ -1620,17 +1624,28 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
     )
     .fetch_all(&state.pool)
     .await?;
-    for user in users {
-        if let Some(user_connections) = state
+
+    // Use `join_all` to broadcast the message to all the users in the conversation
+    // concurrently to minimize the time it takes to broadcast the message
+    let inner = future::join_all(users.into_iter().map(|user| async move {
+        state
             .user_sockets
             .read_async(&user.user_id, |_, v| v.connections.clone())
             .await
-        {
-            for connection in user_connections.iter().flatten() {
-                if let Err(e) = connection.channel.send(msg.clone()).await {
-                    warn!("Error broadcasting event: {}", e);
-                }
-            }
+    }))
+    .await;
+
+    let mut unordered: FuturesUnordered<_> = inner
+        .iter()
+        .flatten()
+        .flatten()
+        .flatten()
+        .map(|connection| connection.channel.send(msg.clone()))
+        .collect();
+
+    while let Some(fut) = unordered.next().await {
+        if let Err(e) = fut {
+            warn!("Error broadcasting event: {}", e);
         }
     }
     Ok(())
