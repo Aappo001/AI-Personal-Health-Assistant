@@ -32,15 +32,12 @@ use reqwest::header::{self, CONTENT_ENCODING, CONTENT_LENGTH};
 use state::AppState;
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
-use tower_governor::{
-    governor::GovernorConfigBuilder,
-    GovernorLayer,
-};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     cors::{self, AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
     timeout::TimeoutLayer,
-    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+    trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer},
     LatencyUnit, ServiceBuilderExt,
 };
 
@@ -122,8 +119,10 @@ pub async fn start_server(pool: SqlitePool, args: &Args) -> Result<()> {
                         .level(Level::TRACE)
                         .include_headers(true),
                 )
+                .on_request(DefaultOnRequest::new().level(Level::TRACE))
                 .on_response(
                     DefaultOnResponse::new()
+                        .level(Level::TRACE)
                         .include_headers(true)
                         .latency_unit(LatencyUnit::Micros),
                 ),

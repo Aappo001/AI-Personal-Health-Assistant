@@ -21,7 +21,7 @@ const PROTOCOL: &str = "sqlite://";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !env::var("BUILD_ENABLED").map(|v| v == "1").unwrap_or(false) {
-        return Ok(())
+        return Ok(());
     }
 
     println!("cargo:rerun-if-changed=migrations");

@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use atomicbox::AtomicOptionBox;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -21,8 +22,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{future, stream::SplitSink, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, QueryBuilder, Sqlite, SqlitePool};
-use tokio::sync::broadcast;
-use tracing::{error, info, instrument, warn};
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 use crate::{
     chat::{query_model, search::search_message, Conversation, ConversationUser},
@@ -372,15 +373,16 @@ pub async fn get_user_status(state: &AppState, user_id: i64) -> OnlineStatus {
 }
 
 /// Handles incoming websocket connections
-#[instrument]
 pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
     let (mut sender, mut receiver) = stream.split();
     let user = Arc::new(user);
 
     // Create the connection state for the user
+    let (tx, mut rx) = mpsc::channel(30);
     let mut connection = InnerConnection {
-        channel: Sender::new(broadcast::channel(10).0, user.id, 0),
+        channel: Sender::new(tx, user.id, 0),
         focused_conversation: Arc::new(AtomicI64::new(0)),
+        focused_handle: Arc::new(AtomicOptionBox::none()),
     };
 
     let connection_id = match state.user_sockets.get_async(&user.id).await {
@@ -408,15 +410,20 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                     ConnectionState {
                         connections: connections.clone(),
                         ai_responding: Arc::new(AtomicI64::new(0)),
+                        ai_handle: Arc::new(AtomicOptionBox::none()),
                         last_sent_at: Arc::new(AtomicI64::new(Utc::now().timestamp_millis())),
-                        idle_handle: Arc::new(tokio::spawn({
-                            let state = state.clone();
-                            let user_id = user.id;
-                            async move { idle_check(&state, user_id).await }
-                        })),
+                        idle_handle: Arc::new(
+                            tokio::spawn({
+                                let state = state.clone();
+                                let user_id = user.id;
+                                async move { idle_check(&state, user_id).await }
+                            })
+                            .abort_handle(),
+                        ),
                     },
                 )
                 .await;
+
             // Attempt to let other users know that the user is online
             // Do it in a separate task so that the connection isn't blocked
             tokio::spawn({
@@ -434,8 +441,6 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
         .await
         .unwrap();
 
-    let mut rx = connection.channel.subscribe();
-
     // Send messages to the client over the websocket
     // Messages are received from the broadcast channel
     let mut send_task = tokio::spawn({
@@ -443,7 +448,7 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
         async move {
             // Keep checking for incoming messages and sending messages to the client accordingly
             // until the connection is closed
-            while let Ok(msg) = rx.recv().await {
+            while let Some(msg) = rx.recv().await {
                 match send_message(&mut sender, msg, &user).await {
                     Ok(true) => (),
                     Ok(false) => {
@@ -546,7 +551,7 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
 async fn request_messages(
     pool: &SqlitePool,
     request: &RequestMessage,
-    tx: &broadcast::Sender<SocketResponse>,
+    tx: &mpsc::Sender<SocketResponse>,
     user: &UserToken,
 ) -> Result<(), AppError> {
     if sqlx::query!(
@@ -580,7 +585,7 @@ async fn request_messages(
     .fetch(pool);
 
     while let Some(message) = query.next().await {
-        tx.send(SocketResponse::Message(message?))?;
+        tx.send(SocketResponse::Message(message?)).await?;
     }
     Ok(())
 }
@@ -616,10 +621,12 @@ async fn emit_user_status(
         };
 
         for sender in connections.iter() {
-            sender.send(SocketResponse::UserStatus {
-                user_id,
-                status: status.clone(),
-            })?;
+            sender
+                .send(SocketResponse::UserStatus {
+                    user_id,
+                    status: status.clone(),
+                })
+                .await?;
         }
     }
 
@@ -944,7 +951,7 @@ async fn handle_friend_request(
         .await
     {
         for conn in receiver_connections.iter().flatten() {
-            conn.channel.send(friend_request.clone())?;
+            conn.channel.send(friend_request.clone()).await?;
         }
     }
 
@@ -956,7 +963,7 @@ async fn handle_friend_request(
         .await
     {
         for conn in sender_connections.iter().flatten() {
-            conn.channel.send(friend_request.clone())?;
+            conn.channel.send(friend_request.clone()).await?;
         }
     }
     Ok(())
@@ -1103,112 +1110,99 @@ async fn handle_message(
                         }
                     };
 
-                    // `tokio::join!` allows us to run multiple futures to completion at the same time
-                    // In this case, querying the AI model for a response and broadcasting the user's
-                    // messages to the conversation at the same time
-                    let (_, ai_message) = tokio::join!(
-                        async {
+                    // Broadcast the message in a separate task to prevent the
+                    // current thread from being blocked by the broadcast
+                    tokio::spawn({
+                        let state = state.clone();
+                        let chat_message = chat_message.clone();
+                        async move {
                             // Only broadcast the message if it is not empty
                             if let Some(chat_message) = chat_message {
                                 let _ = broadcast_event(
-                                    state,
+                                    &state,
                                     SocketResponse::Message(chat_message.clone()),
                                 )
                                 .await;
                             }
-                        },
-                        // Wrap the AI model query in an async block to turn it into a
-                        // future that can be used with `tokio::join!`
-                        async {
-                            let Some(ai_model_id) = send_message.ai_model_id else {
-                                return Ok(None);
-                            };
-                            // The user is explicitly trying to query the model, so check if there is
-                            // already an AI generation in progress in any conversation they are a part of
-                            // and prevent them from starting a new one
-                            if socket.ai_responding.load(Ordering::SeqCst) != 0 {
-                                return Err(AppError::UserError((StatusCode::TOO_MANY_REQUESTS, "AI generation is already in progress. Please cancel generation or wait before making another query".into())));
-                            }
-
-                            socket.ai_responding.store(
-                                send_message.conversation_id.ok_or(AppError::UserError((
-                                    StatusCode::BAD_REQUEST,
-                                    "Cannot send ai message in non-existant conversation!".into(),
-                                )))?,
-                                Ordering::SeqCst,
-                            );
-                            // `tokio::select!` is used to wait for either the AI model's
-                            // response or for the user to cancel the AI generation
-                            // Which ever one comes first will be returned and the other will
-                            // be aborted
-                            let ai_response = tokio::select! {
-                                ai_message = query_model(state, &send_message, user) => {
-                                    let ai_message = ai_message?;
-                                    let stemmed_message = state.stemmer.stem_message(&ai_message);
-                                    // Save the AI model's response to the database
-                                    // This is done outside of the `query_model` function to
-                                    // prevent the message from being lost if the user cancels
-                                    // the AI generation while writing to the database
-                                    let message = sqlx::query!(
-                                        "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING id",
-                                        send_message.conversation_id,
-                                        ai_message,
-                                        stemmed_message,
-                                        ai_model_id
-                                    )
-                                        .fetch_one(&state.pool)
-                                        .await?.id;
-                                        Ok(Some(sqlx::query_as!(
-                                            ChatMessage,
-                                            "SELECT * FROM chat_messages WHERE id = ?",
-                                            message
-                                        )
-                                        .fetch_one(&state.pool)
-                                        .await?))
-                                }
-                                _ = async {
-                                    // Subscribe to the broadcast channel to listen for the
-                                    // user canceling the AI generation
-                                    let mut rx = inner.channel.subscribe();
-                                    while let Ok(msg) = rx.recv().await {
-                                        if let SocketResponse::InternalCanceledGeneration = msg {
-                                            break;
-                                        }
-                                    }
-                                } => {
-                                    let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
-                                    broadcast_event(
-                                        state,
-                                        SocketResponse::CanceledGeneration { conversation_id, querier_id: user.id },
-                                    )
-                                    .await?;
-                                    // Return an error to prevent the AI model's response from being broadcasted
-                                    // We use an error instead of an option here to be able to
-                                    // short circuit the function in both branches using `?`
-                                    Ok(None)
-                                }
-                            };
-
-                            // Reset the AI generation flag to 0 to allow the user to query the model again
-                            // Must be done inside this block to prevent the flage from being reset if the user sends another message
-                            // before the AI model is finished responding or canceled
-                            socket.ai_responding.store(0, Ordering::SeqCst);
-
-                            ai_response
                         }
+                    });
+
+                    // Check if the user is attempting to query the model,
+                    // if they aren't then we can return early
+                    let Some(ai_model_id) = send_message.ai_model_id else {
+                        return Ok(());
+                    };
+
+                    // The user is explicitly trying to query the model, so check if there is
+                    // already an AI generation in progress in any conversation they are a part of
+                    // and prevent them from starting a new one
+                    if socket.ai_responding.load(Ordering::SeqCst) != 0 {
+                        return Err(AppError::UserError((StatusCode::TOO_MANY_REQUESTS, "AI generation is already in progress. Please cancel generation or wait before making another query".into())));
+                    }
+
+                    socket.ai_responding.store(
+                        send_message.conversation_id.ok_or(AppError::UserError((
+                            StatusCode::BAD_REQUEST,
+                            "Cannot send ai message in non-existant conversation!".into(),
+                        )))?,
+                        Ordering::SeqCst,
                     );
 
+                    // Spawn the AI response generation in a separate task to allow cancellation
+                    // by another message from the user
+                    let handle = tokio::spawn({
+                        let state = state.clone();
+                        let send_message = send_message.clone();
+                        let user = user.clone();
+                        async move { query_model(&state, &send_message, &user).await }
+                    });
+
+                    // Save an abort handle to the thread in the connection state of the user
+                    // to allow another thread to abort the AI generation if requested by the user
+                    socket
+                        .ai_handle
+                        .store(Some(Box::new(handle.abort_handle())), Ordering::SeqCst);
+
+                    // This will be Ok() if the AI response generation was not canceled
+                    // If it was canceled then we can just reset the value of the responding
+                    // conversation and return early
+                    let Ok(ai_message) = handle.await else {
+                        socket.ai_responding.store(0, Ordering::SeqCst);
+                        return Ok(());
+                    };
+
+                    // Reset the AI generation flag to 0 to allow the user to query the model again
+                    // Must be done inside this block to prevent the flage from being reset if the user sends another message
+                    // before the AI model is finished responding or canceled
+                    socket.ai_responding.store(0, Ordering::SeqCst);
+
+                    let ai_message = ai_message?;
+                    let stemmed_message = state.stemmer.stem_message(&ai_message);
+
+                    // Save the AI model's response to the database
+                    // This is done outside of the `query_model` function to
+                    // prevent the message from being lost if the user cancels
+                    // the AI generation while writing to the database
+                    let message = sqlx::query!(
+                            "INSERT INTO messages (conversation_id, message, stemmed_message, ai_model_id) VALUES (?, ?, ?, ?) RETURNING id",
+                            send_message.conversation_id,
+                            ai_message,
+                            stemmed_message,
+                            ai_model_id
+                        )
+                        .fetch_one(&state.pool)
+                        .await?.id;
+
+                    let ai_message = sqlx::query_as!(
+                        ChatMessage,
+                        "SELECT * FROM chat_messages WHERE id = ?",
+                        message
+                    )
+                    .fetch_one(&state.pool)
+                    .await?;
+
                     // Broadcast the AI model's response to the conversation
-                    match ai_message {
-                        Ok(Some(ai_message)) => {
-                            broadcast_event(state, SocketResponse::Message(ai_message)).await?;
-                        }
-                        // Emmited when no ai generation is needed or the generation was canceled
-                        Ok(None) => {
-                            return Ok(());
-                        }
-                        Err(e) => return Err(e),
-                    }
+                    broadcast_event(state, SocketResponse::Message(ai_message)).await?;
                 }
                 SocketRequest::EditMessage(chat_message) => {
                     let chat_message = edit_message(state, &chat_message, user).await?;
@@ -1303,7 +1297,8 @@ async fn handle_message(
                                         .await
                                         .into(),
                                     ),
-                                }))?;
+                                }))
+                                .await?;
                         }
                         None => {
                             return Err(AppError::UserError((
@@ -1315,7 +1310,9 @@ async fn handle_message(
 
                     // Cancel focusing a prevoius conversation if the user switches to another conversation
                     // Sent in case the user switches to another conversation before the update finishes
-                    let _ = inner.channel.send(SocketResponse::InternalCanceledFocus);
+                    if let Some(handle) = inner.focused_handle.take(Ordering::SeqCst) {
+                        handle.abort();
+                    }
 
                     // Update the focused conversation for the current connect
                     // after sending the conversation data to prevent blocking
@@ -1332,8 +1329,10 @@ async fn handle_message(
                     // which can ocur if the user switches to another conversation before
                     // the attempt to get the map bucket is blocking.
                     // Using canceling the focus event instead of aborting the task
-                    tokio::select! {
-                        _ = async {
+                    let handle = tokio::spawn({
+                        let state = state.clone();
+                        let inner = inner.clone();
+                        async move {
                             // This implementation is not atomic. This means that a conversation
                             // could be removed without another one being added. Ideally
                             // this would be done in a single atomic operation but
@@ -1345,7 +1344,8 @@ async fn handle_message(
                                 if let Some(mut set) = state
                                     .conversation_connections
                                     .get_async(&last_focused_conversation)
-                                .await {
+                                    .await
+                                {
                                     set.get_mut().remove(&inner.channel);
                                     if set.is_empty() {
                                         // Drop the set to prevent deadlock
@@ -1367,7 +1367,8 @@ async fn handle_message(
                             match state
                                 .conversation_connections
                                 .get_async(&conversation_id)
-                            .await {
+                                .await
+                            {
                                 Some(mut entry) => {
                                     entry.get_mut().insert(inner.channel.clone());
                                 }
@@ -1378,23 +1379,15 @@ async fn handle_message(
                                             conversation_id,
                                             HashSet::from([inner.channel.clone()]),
                                         )
-                                    .await;
+                                        .await;
                                 }
                             }
-                        } => {
                         }
-                        _ = async {
-                            // Allow canceling the focus event if the user switches to another conversation
-                            // before the update finishes. This can happen if the user switches to another
-                            // while the attempt to get the map bucket is blocking.
-                            let mut rx = inner.channel.subscribe();
-                            while let Ok(msg) = rx.recv().await {
-                                if let SocketResponse::InternalCanceledFocus = msg {
-                                    break;
-                                }
-                            }
-                        } => {}
-                    }
+                    });
+
+                    inner
+                        .focused_handle
+                        .store(Some(Box::new(handle.abort_handle())), Ordering::SeqCst);
                 }
                 SocketRequest::RequestConversations(request_message) => {
                     let limit = request_message.message_num.unwrap_or(50);
@@ -1455,7 +1448,8 @@ async fn handle_message(
                                         })
                                         .collect(),
                                 ),
-                            }))?;
+                            }))
+                            .await?;
                     }
                 }
                 SocketRequest::RequestFriends => {
@@ -1472,10 +1466,13 @@ async fn handle_message(
                         } else {
                             friendship.user1_id
                         };
-                        inner.channel.send(SocketResponse::FriendData {
-                            id: friend_id,
-                            created_at: friendship.created_at,
-                        })?;
+                        inner
+                            .channel
+                            .send(SocketResponse::FriendData {
+                                id: friend_id,
+                                created_at: friendship.created_at,
+                            })
+                            .await?;
                     }
                 }
                 SocketRequest::RequestFriendRequests => {
@@ -1488,30 +1485,61 @@ async fn handle_message(
 
                     while let Some(friend_request) = query.next().await {
                         let friend_request = friend_request?;
-                        inner.channel.send(SocketResponse::FriendRequest {
-                            sender_id: friend_request.sender_id,
-                            receiver_id: friend_request.receiver_id,
-                            created_at: friend_request.created_at,
-                            status: FriendRequestStatus::Pending,
-                        })?;
+                        inner
+                            .channel
+                            .send(SocketResponse::FriendRequest {
+                                sender_id: friend_request.sender_id,
+                                receiver_id: friend_request.receiver_id,
+                                created_at: friend_request.created_at,
+                                status: FriendRequestStatus::Pending,
+                            })
+                            .await?;
                     }
                 }
                 SocketRequest::CancelGeneration => {
                     // Use 0 as a sentinel value to indicate that the AI generation
                     // is not running for the current user
                     let conversation_id = socket.ai_responding.load(Ordering::SeqCst);
-                    if conversation_id > 0 {
+                    if conversation_id == 0 {
                         inner
                             .channel
-                            .send(SocketResponse::InternalCanceledGeneration)?;
-                    } else {
-                        inner.channel.send(SocketResponse::Error(
-                            AppError::UserError((
-                                StatusCode::BAD_REQUEST,
-                                "No ai response to cancel".into(),
+                            .send(SocketResponse::Error(
+                                AppError::UserError((
+                                    StatusCode::BAD_REQUEST,
+                                    "No ai response to cancel".into(),
+                                ))
+                                .into(),
                             ))
-                            .into(),
-                        ))?;
+                            .await?;
+                        return Ok(());
+                    }
+
+                    match socket.ai_handle.take(Ordering::SeqCst) {
+                        Some(handle) => {
+                            // Abort the ongoing AI generation task
+                            handle.abort();
+                            // Broadcast the cancellation of the AI generation
+                            broadcast_event(
+                                state,
+                                SocketResponse::CanceledGeneration {
+                                    conversation_id,
+                                    querier_id: user.id,
+                                },
+                            )
+                            .await?;
+                        }
+                        None => {
+                            inner
+                                .channel
+                                .send(SocketResponse::Error(
+                                    AppError::UserError((
+                                        StatusCode::BAD_REQUEST,
+                                        "No ai response to cancel".into(),
+                                    ))
+                                    .into(),
+                                ))
+                                .await?;
+                        }
                     }
                 }
                 SocketRequest::SearchMessages(message) => {
@@ -1530,7 +1558,7 @@ async fn handle_message(
                     // to let them know that they have left the conversation since
                     // `broadcast_event` will not send events to the user that left
                     for connection in socket.connections.iter().flatten() {
-                        connection.channel.send(leave_event.clone())?;
+                        connection.channel.send(leave_event.clone()).await?;
                     }
 
                     // Broadcast the user leaving the conversation to all the remaining users in the conversation
@@ -1599,7 +1627,7 @@ pub async fn broadcast_event(state: &AppState, msg: SocketResponse) -> Result<()
             .await
         {
             for connection in user_connections.iter().flatten() {
-                if let Err(e) = connection.channel.send(msg.clone()) {
+                if let Err(e) = connection.channel.send(msg.clone()).await {
                     warn!("Error broadcasting event: {}", e);
                 }
             }

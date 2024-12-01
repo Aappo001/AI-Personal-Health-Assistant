@@ -210,16 +210,18 @@ pub async fn query_model(
             Ok(ref mut bytes) => {
                 // Stream the individual messages to the clients
                 for sender in &senders {
-                    sender.send(SocketResponse::StreamData(StreamMessage {
-                        conversation_id,
-                        message: Some(
-                            bytes["choices"][0]["delta"]["content"]
-                                .as_str()
-                                .unwrap_or("")
-                                .to_string(),
-                        ),
-                        querier_id: user.id,
-                    }))?;
+                    sender
+                        .send(SocketResponse::StreamData(StreamMessage {
+                            conversation_id,
+                            message: Some(
+                                bytes["choices"][0]["delta"]["content"]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .to_string(),
+                            ),
+                            querier_id: user.id,
+                        }))
+                        .await?;
                 }
                 // Accumulate the response content
                 res_content += bytes["choices"][0]["delta"]["content"]
@@ -232,11 +234,13 @@ pub async fn query_model(
 
     // Broadcast the that the AI model has finished processing
     for sender in &senders {
-        sender.send(SocketResponse::StreamData(StreamMessage {
-            conversation_id,
-            message: None,
-            querier_id: user.id,
-        }))?;
+        sender
+            .send(SocketResponse::StreamData(StreamMessage {
+                conversation_id,
+                message: None,
+                querier_id: user.id,
+            }))
+            .await?;
     }
 
     Ok(res_content)

@@ -3,7 +3,7 @@ use futures::StreamExt;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use sqlx::{QueryBuilder, Sqlite};
-use tokio::sync::broadcast::Sender;
+use tokio::sync::mpsc::Sender;
 
 use crate::{chat::ChatMessage, error::AppError, state::AppState};
 
@@ -169,7 +169,7 @@ pub async fn search_message(
 
     while let Some(message) = query.next().await {
         match message {
-            Ok(message) => sender.send(SocketResponse::SearchMessage(message))?,
+            Ok(message) => sender.send(SocketResponse::SearchMessage(message)).await?,
             // Check if the error is a database error with code 1 which means the search query is invalid
             Err(e)
                 if e.as_database_error()

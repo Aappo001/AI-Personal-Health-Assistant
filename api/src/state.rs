@@ -9,12 +9,13 @@ use std::{
     },
 };
 
+use atomicbox::AtomicOptionBox;
 use axum::extract::FromRef;
 use chrono::DateTime;
 use reqwest::{header, Client};
 use scc::HashMap;
 use sqlx::SqlitePool;
-use tokio::{sync::broadcast, task::JoinHandle};
+use tokio::{sync::mpsc, task::AbortHandle};
 
 use crate::{chat::SocketResponse, IDLE_TIMEOUT};
 
@@ -42,7 +43,7 @@ pub struct AppState {
 
 #[derive(Clone, Debug)]
 pub struct Sender<T> {
-    pub(crate) channel: broadcast::Sender<T>,
+    pub(crate) channel: mpsc::Sender<T>,
     pub(crate) user_id: Arc<i64>,
     pub conn_id: usize,
 }
@@ -62,7 +63,7 @@ impl<T> Hash for Sender<T> {
 }
 
 impl<T> Deref for Sender<T> {
-    type Target = broadcast::Sender<T>;
+    type Target = mpsc::Sender<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.channel
@@ -70,7 +71,7 @@ impl<T> Deref for Sender<T> {
 }
 
 impl<T> Sender<T> {
-    pub fn new(sender: broadcast::Sender<T>, user_id: i64, conn_id: usize) -> Self {
+    pub fn new(sender: mpsc::Sender<T>, user_id: i64, conn_id: usize) -> Self {
         Self {
             channel: sender,
             user_id: Arc::new(user_id),
@@ -131,7 +132,8 @@ pub struct ConnectionState {
     /// The handle to the indle checking task
     /// Held in this struct so that any connection can cancel it, regardless of the connection that
     /// initiated the task
-    pub(crate) idle_handle: Arc<JoinHandle<()>>,
+    pub(crate) idle_handle: Arc<AbortHandle>,
+    pub(crate) ai_handle: Arc<AtomicOptionBox<AbortHandle>>,
 }
 
 impl ConnectionState {
@@ -162,6 +164,7 @@ pub struct InnerConnection {
     /// The id of the last conversation a user Requested using `SocketRequest::RequestConversation`
     /// This is assumed to be the last conversation the user was focused on.
     pub(crate) focused_conversation: Arc<AtomicI64>,
+    pub(crate) focused_handle: Arc<AtomicOptionBox<AbortHandle>>,
 }
 
 impl AppState {
