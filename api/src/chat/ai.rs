@@ -67,12 +67,39 @@ pub async fn query_model(
     // Enable streaming so we can get the response as it comes in
         "stream": true
     });
+
     // Populate the messages array with the messages in the conversation
     if let Some(req_messages) = body["messages"].as_array_mut() {
         // Query the messages as a stream to save memory
         // This saves a ton on longer conversations
+        // Only select the most recent messages that add up to less than 5000 characters
+        // This is to prevent the AI from getting stuck on very long conversations
+        // and token limits from the api
         let mut db_messages = sqlx::query!(
-            "SELECT message, user_id, users.username FROM messages LEFT JOIN users ON messages.user_id = users.id WHERE conversation_id = ?",
+        "WITH ranked_messages AS (
+            SELECT
+                messages.message,
+                messages.user_id,
+                users.username,
+                SUM(LENGTH(messages.message)) OVER (PARTITION BY messages.conversation_id ORDER BY messages.created_at DESC) AS cumulative_length,
+                messages.created_at
+            FROM
+                messages
+            LEFT JOIN
+                users ON messages.user_id = users.id
+            WHERE
+                messages.conversation_id = ?
+        )
+        SELECT
+            message,
+            user_id,
+            username
+        FROM
+            ranked_messages
+        WHERE
+            cumulative_length <= 5000
+        ORDER BY
+            created_at ASC",
             conversation_id
         )
         .fetch(&state.pool);
