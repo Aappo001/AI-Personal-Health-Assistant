@@ -296,6 +296,16 @@ struct RequestMessage {
     /// The maximum number of messages to request
     /// If this is None, the client is requesting 50 messages
     message_num: Option<i64>,
+    #[serde(default)]
+    pagination: Pagination,
+}
+
+#[derive(Deserialize, Debug, Default)]
+enum Pagination {
+    #[default]
+    After,
+    Around,
+    Before,
 }
 
 /// A request for conversations the user is in
@@ -574,19 +584,71 @@ async fn request_messages(
         )));
     }
 
-    let limit = request.message_num.unwrap_or(50);
+    // Prevent the client from requesting more than 200 messages at a time
+    let mut limit = request.message_num.unwrap_or(50).min(200);
     let message_id = request.message_id.unwrap_or(i64::MAX);
 
-    let mut query = sqlx::query_as!(
-        ChatMessage,
-        r#"SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?
-        ORDER BY created_at DESC
-        LIMIT ?"#,
-        request.conversation_id,
-        message_id,
-        limit
-    )
-    .fetch(pool);
+    // Messages should be returned in ascending order so that when the frontend
+    // receives the messages, they are in the correct order
+    let mut query = match request.pagination {
+        // No need to order the messages in ascending order since they are already ordered properly
+        Pagination::After => sqlx::query_as!(
+            ChatMessage,
+            r#"SELECT * FROM (
+                        SELECT * FROM chat_messages WHERE conversation_id = ? AND id > ?
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                )
+                ORDER BY created_at DESC"#,
+            request.conversation_id,
+            message_id,
+            limit
+        )
+        .fetch(pool),
+        // Same with before, but we want to get the messages before the provided message id
+        Pagination::Around => {
+            limit /= 2;
+            sqlx::query_as!(
+                ChatMessage,
+                r#"SELECT * FROM (
+                        SELECT * FROM chat_messages WHERE conversation_id = ? AND id >= ?
+                        ORDER BY created_at ASC
+                        LIMIT ?
+                )
+                UNION
+                SELECT * FROM (
+                        SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?
+                        ORDER BY created_at DESC
+                        LIMIT ?
+                ) 
+                ORDER BY created_at ASC"#,
+                request.conversation_id,
+                message_id,
+                limit,
+                request.conversation_id,
+                message_id,
+                limit,
+            )
+            .fetch(pool)
+        }
+        // Using a nested query to order the messages correctly
+        // We need to order the messages in descending order first to get the most recently
+        // sent messages after the provided message id.
+        // Then we order the messages in ascending order to get the messages in the correct order
+        Pagination::Before => sqlx::query_as!(
+            ChatMessage,
+            r#"SELECT * FROM (
+                    SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ) 
+                ORDER BY created_at ASC"#,
+            request.conversation_id,
+            message_id,
+            limit
+        )
+        .fetch(pool),
+    };
 
     while let Some(message) = query.next().await {
         tx.send(SocketResponse::Message(message?)).await?;
