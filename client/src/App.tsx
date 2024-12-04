@@ -74,6 +74,12 @@ function App() {
           >
             User Health Form
           </Link>
+          <Link
+            to="/downloadform"
+            className="px-3 py-5 border-2 font-bold w-64 text-center text-2xl transition-colors duration-150 hover:bg-yellow-500 hover:text-main-black border-yellow-500 text-yellow-500 m-2 rounded-full leading-relaxed"
+          >
+            Download Form
+          </Link>
         </div>
       </Background>
     </>
