@@ -1,11 +1,11 @@
 use std::{
-    env::{self, current_dir},
-    fs::File,
+    env,
+    fs::{read_to_string, File, OpenOptions},
     io::Write,
     path::PathBuf,
 };
 
-use dotenvy::{dotenv, var};
+use dotenvy::var;
 use sqlx::SqlitePool;
 
 #[cfg(windows)]
@@ -25,38 +25,86 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("cargo:rerun-if-changed=migrations");
-    let db_file = match dotenv() {
-        Ok(_) => PathBuf::from(match var("DATABASE_URL") {
-            Ok(url) => {
-                if url.starts_with(PROTOCOL) {
-                    url.strip_prefix(PROTOCOL).unwrap().to_string()
-                } else {
-                    url
-                }
-            }
-            Err(_) => "./api.db".to_string(),
-        }),
-        Err(_) => {
-            let db_path = current_dir()?.join("api.db");
-            let mut env_file = File::create(".env")?;
+    println!("cargo:rerun-if-changed=.env");
 
-            if cfg!(windows) {
-                // We know that windows paths use `\` instead of `/` as file separators and file names cannot contain `\` inside them.
-                // Therefore, every `\` we encounter is a file separator and can safely be replaced with `/`.
-                writeln!(
-                    env_file,
-                    "DATABASE_URL={}{}",
-                    PROTOCOL,
-                    db_path.display().to_string().replace('\\', "/")
-                )?;
-            } else {
-                writeln!(env_file, "DATABASE_URL={}{}", PROTOCOL, db_path.display())?;
-            }
-            db_path
+    update_db_url()?;
+    let db_file = var("DATABASE_URL")?;
+    if db_file.starts_with("sqlite") {
+        let path = if db_file.contains("file:") {
+            db_file.split("file:").collect::<Vec<&str>>()[1]
+        } else {
+            db_file.split(PROTOCOL).collect::<Vec<&str>>()[1]
+        };
+        let path = PathBuf::from(path);
+        if !path.exists() {
+            File::create(&path)?;
         }
-    };
-    File::create(&db_file)?;
-    let pool = SqlitePool::connect_lazy(&format!("{}{}", PROTOCOL, db_file.display()))?;
+    }
+    let pool = SqlitePool::connect_lazy(&db_file)?;
     sqlx::migrate!("./migrations").run(&pool).await?;
+    Ok(())
+}
+
+fn default_db_url() -> Result<String, String> {
+    let data_dir = dirs::data_dir()
+        .ok_or("Could not find data directory!")?
+        .join(env!("CARGO_PKG_NAME"));
+    if !data_dir.exists() {
+        std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    }
+    let db_dir = data_dir.join("build.db");
+    Ok(if cfg!(windows) {
+        format!(
+            "{PROTOCOL}{}",
+            db_dir.display().to_string().replace('\\', "/")
+        )
+    } else {
+        format!("{PROTOCOL}{}", db_dir.display())
+    })
+}
+
+fn update_db_url() -> Result<(), Box<dyn std::error::Error>> {
+    // Read the existing .env file
+    let contents = read_to_string(".env").ok();
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .read(true)
+        .open(".env")?;
+
+    // If the file is empty, write the default DATABASE_URL
+    let Some(contents) = contents else {
+        writeln!(file, "DATABASE_URL={}\n", default_db_url()?)?;
+        return Ok(());
+    };
+    // Otherwise, update the DATABASE_URL
+    let mut final_str: Vec<String> = Vec::new();
+    let mut seen = false;
+    for line in contents.lines() {
+        if let Some(suffix) = line
+            .trim_start()
+            .strip_prefix("DATABASE_URL=")
+            .map(|suffix| suffix.trim())
+        {
+            seen = true;
+            if suffix.is_empty() {
+                final_str.push(format!("DATABASE_URL={}", default_db_url()?));
+            } else {
+                final_str.push(line.to_string());
+            }
+        } else {
+            final_str.push(line.to_string());
+        }
+    }
+    if !seen {
+        final_str.push(format!("DATABASE_URL={}", default_db_url()?));
+    }
+    file.write_all(
+        // Join the final string with the appropriate line endings
+        final_str
+            .join(if cfg!(windows) { "\r\n" } else { "\n" })
+            .as_bytes(),
+    )?;
     Ok(())
 }
