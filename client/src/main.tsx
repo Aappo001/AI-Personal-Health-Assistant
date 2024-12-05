@@ -15,8 +15,10 @@ import ProfilePage from "./components/ProfilePage.tsx";
 import UserHealthForm from "./components/UserForm.tsx";
 import FriendsPage from "./components/FriendsPage.tsx";
 import WebsocketTesting from "./components/WebsocketTesting.tsx";
-import Chart from "./components/rechart.tsx";
+import WeightGraph from "./components/WeightGraph.tsx";
 import DownloadForm from "./components/Downloadform.tsx";
+import ExerciseGraph from "./components/ExerciseGraph.tsx";
+import UserStats from "./components/UserStats.tsx";
 
 const router = createBrowserRouter([
   {
@@ -74,6 +76,11 @@ const router = createBrowserRouter([
     element: <WebsocketTesting />,
   },
   {
+    path: "/userstats",
+    element: <UserStats />,
+    errorElement: <PageNotFound />,
+  },
+  {
     path: "/healthform",
     element: <UserHealthForm />,
     errorElement: <PageNotFound />,
@@ -84,10 +91,15 @@ const router = createBrowserRouter([
     errorElement: <PageNotFound />,
   },
   {
-  path: "/testChart",
-  element: <Chart />, 
+  path: "/weightgraph",
+  element: <WeightGraph />, 
   errorElement: <PageNotFound />,
   },
+  {
+    path: "/exercisegraph",
+    element: <ExerciseGraph />, 
+    errorElement: <PageNotFound />,
+    }
 ]);
 
 createRoot(document.getElementById("root")!).render(
