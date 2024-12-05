@@ -53,6 +53,9 @@ fn default_db_url() -> Result<String, String> {
         std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
     }
     let db_dir = data_dir.join("build.db");
+    if !db_dir.exists() {
+        File::create(&db_dir).map_err(|e| e.to_string())?;
+    }
     Ok(if cfg!(windows) {
         format!(
             "{PROTOCOL}{}",

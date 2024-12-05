@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "WITH ranked_messages AS (\n            SELECT\n                messages.message,\n                messages.user_id,\n                users.username,\n                SUM(LENGTH(messages.message)) OVER (PARTITION BY messages.conversation_id ORDER BY messages.created_at DESC) AS cumulative_length,\n                messages.created_at\n            FROM\n                messages\n            LEFT JOIN\n                users ON messages.user_id = users.id\n            WHERE\n                messages.conversation_id = ?\n        )\n        SELECT\n            message,\n            user_id,\n            username\n        FROM\n            ranked_messages\n        WHERE\n            cumulative_length <= 5000\n        ORDER BY\n            created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "message",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "user_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "username",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b39a5c2d753ac12b389f6fdf72d505b8af3cc4b3042f5c9cb9dc57073e7a83fe"
+}

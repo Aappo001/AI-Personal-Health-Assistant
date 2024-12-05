@@ -35,6 +35,7 @@ cd AI-Personal-Health-Assistant
 cd api
 echo "JWT_KEY={YOUR_JWT_KEY}" >> .env
 echo "HF_API_KEY={YOUR_API_KEY}" >> .env
+echo "SQLX_OFFLINE=true" >> .env
 ```
 3. Build the backend with cargo
 ```
