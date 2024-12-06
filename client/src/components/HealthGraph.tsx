@@ -12,9 +12,19 @@ import {
 import axios from "axios";
 import Background from "./Background";
 import { BASE_URL, getJwt } from "../utils/utils";
+import { HealthForm } from "../types";
 
-export default function ExerciseGraph() {
-  const [data, setData] = useState([]);
+interface Props {
+  name: string;
+  units: string;
+  yAxisLabel: string;
+  dataKey: string;
+  callback: (form: HealthForm) => number | undefined;
+}
+
+export default function HealthGraph({ name, units, yAxisLabel, dataKey, callback }: Props) {
+  const [data, setData] = useState<any []>([]);
+
   const [responseMessage, setResponseMessage] = useState("");
   const [error, setError] = useState(false);
 
@@ -32,15 +42,20 @@ export default function ExerciseGraph() {
           },
         });
 
-        const forms = response.data
-          .map((form: any) => ({
-            id: form.id,
-            date: form.modified_at.slice(0, 10),
-            exercise_duration: form.exercise_duration, 
-          }))
-          .sort((a: any, b: any) => a.id - b.id); 
+        const forms = response.data as HealthForm[];
+        forms.sort((a, b) => a.id - b.id);
 
-        setData(forms);
+        // Convert the forms data to the format
+        const mappedData = forms.map(callback);
+
+        const mappedForm = forms.map((form, index) => {
+          const mappedForm: any = {}; 
+          mappedForm.date = new Date(form.createdAt).toLocaleDateString();
+          mappedForm[dataKey] = mappedData[index]
+          return mappedForm;
+        }).filter((form) => form[dataKey]);
+
+        setData(mappedForm);
         setResponseMessage("Data loaded successfully.");
       } catch (error: any) {
         const errorMessage =
@@ -58,7 +73,7 @@ export default function ExerciseGraph() {
     <Background color="black">
       <div className="w-full h-full flex flex-col justify-center items-center">
         <h1 className="text-4xl font-bebas text-offwhite mb-8">
-          Exercise Duration Graph
+          {name}
         </h1>
         <div className="w-full max-w-4xl h-auto">
           <ResponsiveContainer width="100%" height={400}>
@@ -70,7 +85,7 @@ export default function ExerciseGraph() {
               />
               <YAxis
                 label={{
-                  value: "Exercise Duration (Minutes)",
+                  value: `${yAxisLabel} (${units})`,
                   angle: -90,
                   position: "insideLeft",
                 }}
@@ -79,7 +94,7 @@ export default function ExerciseGraph() {
               <Legend />
               <Line
                 type="monotone"
-                dataKey="exercise_duration"
+                dataKey={dataKey}
                 stroke="#8884d8"
                 activeDot={{ r: 8 }}
               />
@@ -87,9 +102,8 @@ export default function ExerciseGraph() {
           </ResponsiveContainer>
           {responseMessage && (
             <div
-              className={`mt-4 text-lg ${
-                error ? "text-red-500" : "text-green-500"
-              }`}
+              className={`mt-4 text-lg ${error ? "text-red-500" : "text-green-500"
+                }`}
             >
               {responseMessage}
             </div>

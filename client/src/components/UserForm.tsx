@@ -1,15 +1,15 @@
 import { useState } from "react";
 import Background from "./Background";
 import axios from "axios";
-import { BASE_URL, getJwt} from "../utils/utils";
+import { BASE_URL, getJwt } from "../utils/utils";
 
 
 interface HealthStatsBody {
     height?: number;
     weight?: number;
-    sleep_hours?: number;
-    exercise_duration?: number;
-    food_intake?: string;
+    sleepHours?: number;
+    exerciseDuration?: number;
+    foodIntake?: string;
     notes?: string;
 }
 
@@ -20,16 +20,16 @@ export default function UserHealthForm() {
     const [healthStats, setHealthStats] = useState<HealthStatsBody>({
         height: undefined,
         weight: undefined,
-        sleep_hours: undefined,
-        exercise_duration: undefined,
-        food_intake: "",
+        sleepHours: undefined,
+        exerciseDuration: undefined,
+        foodIntake: "",
         notes: "",
     });
     const [responseMessage, setResponseMessage] = useState<string>("");
     const [error, setError] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    
+
     const jwt = getJwt();
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -65,9 +65,9 @@ export default function UserHealthForm() {
             setHealthStats({
                 height: undefined,
                 weight: undefined,
-                sleep_hours: undefined,
-                exercise_duration: undefined,
-                food_intake: "",
+                sleepHours: undefined,
+                exerciseDuration: undefined,
+                foodIntake: "",
                 notes: "",
             });
         } catch (error: any) {
@@ -118,11 +118,11 @@ export default function UserHealthForm() {
                         <input
                             type="number"
                             name="sleep_hours"
-                            value={healthStats.sleep_hours || ""}
+                            value={healthStats.sleepHours || ""}
                             onChange={(e) =>
                                 setHealthStats({
                                     ...healthStats,
-                                    sleep_hours: parseFloat(e.target.value) || undefined,
+                                    sleepHours: parseFloat(e.target.value) || undefined,
                                 })
                             }
                             placeholder="Sleep Hours"
@@ -131,11 +131,11 @@ export default function UserHealthForm() {
                         <input
                             type="number"
                             name="exercise_duration"
-                            value={healthStats.exercise_duration || ""}
+                            value={healthStats.exerciseDuration || ""}
                             onChange={(e) =>
                                 setHealthStats({
                                     ...healthStats,
-                                    exercise_duration: parseFloat(e.target.value) || undefined,
+                                    exerciseDuration: parseFloat(e.target.value) || undefined,
                                 })
                             }
                             placeholder="Exercise Duration (minutes)"
@@ -143,11 +143,11 @@ export default function UserHealthForm() {
                         />
                         <textarea
                             name="food_intake"
-                            value={healthStats.food_intake || ""}
+                            value={healthStats.foodIntake || ""}
                             onChange={(e) =>
                                 setHealthStats({
                                     ...healthStats,
-                                    food_intake: e.target.value,
+                                    foodIntake: e.target.value,
                                 })
                             }
                             placeholder="Describe Food Intake"
@@ -168,9 +168,8 @@ export default function UserHealthForm() {
                         <button
                             type="submit"
                             disabled={isSubmitting}
-                            className={`px-5 py-3 border-2 rounded-full font-bold w-full transition-colors border-lilac text-lilac hover:bg-lilac hover:text-main-black ${
-                                isSubmitting ? "opacity-50 cursor-not-allowed" : ""
-                            }`}
+                            className={`px-5 py-3 border-2 rounded-full font-bold w-full transition-colors border-lilac text-lilac hover:bg-lilac hover:text-main-black ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""
+                                }`}
                         >
                             {isSubmitting ? "Submitting..." : "Submit"}
                         </button>

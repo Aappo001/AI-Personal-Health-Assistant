@@ -15,9 +15,8 @@ import ProfilePage from "./components/ProfilePage.tsx";
 import UserHealthForm from "./components/UserForm.tsx";
 import FriendsPage from "./components/FriendsPage.tsx";
 import WebsocketTesting from "./components/WebsocketTesting.tsx";
-import WeightGraph from "./components/WeightGraph.tsx";
 import DownloadForm from "./components/Downloadform.tsx";
-import ExerciseGraph from "./components/ExerciseGraph.tsx";
+import HealthGraph from "./components/HealthGraph.tsx";
 import UserStats from "./components/UserStats.tsx";
 
 const router = createBrowserRouter([
@@ -91,15 +90,15 @@ const router = createBrowserRouter([
     errorElement: <PageNotFound />,
   },
   {
-  path: "/weightgraph",
-  element: <WeightGraph />, 
-  errorElement: <PageNotFound />,
+    path: "/weightgraph",
+    element: <HealthGraph name="Weight Graph" units="kg" yAxisLabel="Weight" dataKey="Weight" callback={(form) => form.weight} />,
+    errorElement: <PageNotFound />,
   },
   {
     path: "/exercisegraph",
-    element: <ExerciseGraph />, 
+    element: <HealthGraph name="Exercise Duration" units="Minutes" yAxisLabel="Exercise Duration" dataKey="Exercise Duration" callback={(form) => form.exerciseDuration} />,
     errorElement: <PageNotFound />,
-    }
+  }
 ]);
 
 createRoot(document.getElementById("root")!).render(
