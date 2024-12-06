@@ -4,9 +4,12 @@ import Background from "./Background";
 import { LoginBody, RegisterBody } from "../types";
 import { BASE_URL, getJwt } from "../utils/utils";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function ProfilePage() {
     const userStore = useUserStore();
+    const navigate = useNavigate();
+
 
     const [user, setUser] = useState<RegisterBody>({
         firstName: userStore.firstName,
@@ -57,6 +60,14 @@ export default function ProfilePage() {
 
     return (
         <Background>
+                  <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
             <div className="w-screen flex justify-center items-center py-16 gap-4">
                 <div className="border-2 border-offwhite px-4 py-6 flex flex-col items-center justify-evenly gap-4 w-3/12 h-4/5 rounded:sm">
                     <p className={` text-offwhite text-6xl font-bebas`}>

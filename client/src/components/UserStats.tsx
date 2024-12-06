@@ -6,6 +6,14 @@ export default function UserStats() {
 
   return (
     <Background color="black">
+            <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
       <div className="w-full h-full flex flex-col items-center justify-center">
         {/* Title */}
         <h1 className="text-4xl font-bold text-offwhite mb-8 font-bebas">
