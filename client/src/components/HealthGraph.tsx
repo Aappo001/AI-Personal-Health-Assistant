@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   LineChart,
   Line,
@@ -29,6 +30,7 @@ export default function HealthGraph({ name, units, yAxisLabel, dataKey, callback
   const [error, setError] = useState(false);
 
   const jwt = getJwt();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -72,6 +74,14 @@ export default function HealthGraph({ name, units, yAxisLabel, dataKey, callback
   return (
     <Background color="black">
       <div className="w-full h-full flex flex-col justify-center items-center">
+      <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
         <h1 className="text-4xl font-bebas text-offwhite mb-8">
           {name}
         </h1>

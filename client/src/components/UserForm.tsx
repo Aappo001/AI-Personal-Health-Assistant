@@ -2,6 +2,7 @@ import { useState } from "react";
 import Background from "./Background";
 import axios from "axios";
 import { BASE_URL, getJwt } from "../utils/utils";
+import { useNavigate } from "react-router-dom";
 
 
 interface HealthStatsBody {
@@ -31,6 +32,7 @@ export default function UserHealthForm() {
 
 
     const jwt = getJwt();
+    const navigate = useNavigate();
 
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -82,6 +84,14 @@ export default function UserHealthForm() {
 
     return (
         <Background color="black">
+                  <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
             <div className="w-full h-full flex flex-col justify-center items-center">
                 <div className="border-2 border-offwhite px-4 py-4 flex flex-col items-center justify-evenly gap-4 w-3/12 h-auto rounded-sm">
                     <p className={`text-offwhite text-6xl font-bebas`}>Health Stats</p>

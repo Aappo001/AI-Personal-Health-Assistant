@@ -5,7 +5,7 @@ import FileAttachment from "./FileAttachment";
 import { uploadAttachment } from "../utils/utils";
 import useFileAttachment from "../store/hooks/useFileAttachment";
 import { UploadAttachment } from "../types";
-import { wsSendMessage } from "../utils/ws-utils";
+import { useNavigate } from "react-router-dom";
 
 export const ChatHome = () => {
   const user = useUserStore();
@@ -15,6 +15,7 @@ export const ChatHome = () => {
   const ws = useContext(WebsocketContext);
   const { attachment, hiddenFileInput, handleFileUploadClick, resetFile } =
     useFileAttachment();
+  const navigate = useNavigate();
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
@@ -37,6 +38,14 @@ export const ChatHome = () => {
 
   return (
     <>
+          <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
       <div className="flex flex-col justify-center items-center w-screen h-screen">
         <h1 className="text-5xl text-offwhite leading-relaxed my-16">
           {user.username

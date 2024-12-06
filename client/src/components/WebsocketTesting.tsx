@@ -2,7 +2,9 @@ import Background from "./Background";
 import useWebsocketSetup from "../store/hooks/useWebsocket";
 import { useState } from "react";
 import { useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 import { Rootstate } from "../store/store";
+
 
 export default function WebsocketTesting() {
   const {
@@ -21,10 +23,20 @@ export default function WebsocketTesting() {
   const [message, setMessage] = useState("");
   const friends = useSelector((state: Rootstate) => state.friendsState.friends);
   const conversations = useSelector((state: Rootstate) => state.messageState);
+  const navigate = useNavigate();
+
 
   return (
     <>
       <Background>
+      <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
         {friends.length > 0 &&
           friends.map((friend) => (
             <h1 className="text-3xl text-offwhite">Friends with {friend.username}</h1>

@@ -3,6 +3,7 @@ import Background from "./Background";
 import axios from "axios";
 import { BASE_URL, getJwt} from "../utils/utils";
 import { jsPDF } from "jspdf";
+import { useNavigate } from "react-router-dom";
 
 export default function DownloadForm() {
   const [formId, setFormId] = useState<number | undefined>(undefined);
@@ -10,6 +11,7 @@ export default function DownloadForm() {
   const [error, setError] = useState(false);
 
   const jwt = getJwt();
+  const navigate = useNavigate();
 
   const handleDownload = async () => {
     if (formId === undefined || isNaN(formId)) {
@@ -73,6 +75,14 @@ export default function DownloadForm() {
 
   return (
     <Background color="black">
+            <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
       <div className="w-full h-full flex flex-col justify-center items-center">
         <div className="border-2 border-offwhite px-6 py-6 flex flex-col items-center gap-6 w-3/12 h-auto rounded-sm">
           <p className="text-offwhite text-4xl font-bebas">Download Form</p>

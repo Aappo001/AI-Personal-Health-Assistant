@@ -1,6 +1,7 @@
 import { useContext } from "react";
 import { Friend } from "../types";
 import { WebsocketContext } from "./Chat";
+import { useNavigate } from "react-router-dom";
 
 interface Props {
   friend: Friend;
@@ -12,6 +13,8 @@ export default function FriendBox({ friend, selectedFriends, setSelectedFriends 
   const isSelected = selectedFriends.some(
     (selectedFriendId) => selectedFriendId === friend.id
   );
+
+  const navigate = useNavigate();
 
   const handleFriendRequest = (accept: boolean) => {
     sendFriendRequest(friend.username, accept);
@@ -27,6 +30,14 @@ export default function FriendBox({ friend, selectedFriends, setSelectedFriends 
 
   return (
     <>
+          <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
       <div
         className={`flex justify-between items-center  ${
           isSelected ? "bg-slate-700" : "bg-main-grey"
