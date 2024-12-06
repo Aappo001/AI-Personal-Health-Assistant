@@ -18,9 +18,9 @@
 	Currently the frontend only queries the 50 most recently updated conversations
   - ( ) Add support for sending read events to the backend
         Read events should be sent in a conversations when a user scrolls down to the last message in the conversation
-  - ( ) Add support for properly sending user forms
+  - (x) Add support for properly sending user forms
 	Right now, the user forms don't send the data to the backend
-  - ( ) Support for downloading data from previously filled user forms
+  - (x) Support for downloading data from previously filled user forms
   - ( ) Polish UI Make the UI more visually appealing
   -- ( ) Fix text overflowing out of the message boxes
   -- ( ) Skin scroll bar to fit the rest of the UI
