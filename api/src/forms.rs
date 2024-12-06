@@ -15,6 +15,7 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HealthForm {
     pub height: Option<f64>,
     pub weight: Option<f64>,
