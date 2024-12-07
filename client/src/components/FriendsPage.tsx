@@ -3,6 +3,7 @@ import useFriendStore from "../store/hooks/useFriendStore";
 import { WebsocketContext } from "./Chat";
 import { checkUsername } from "../utils/utils";
 import FriendBox from "./FriendBox";
+import { useNavigate } from "react-router-dom";
 import { useUserMapContext } from "./UserMapContext";
 
 export default function FriendsPage() {
@@ -14,6 +15,7 @@ export default function FriendsPage() {
   const { sendFriendRequest, requestFriendRequests, inviteUsers } =
     useContext(WebsocketContext);
 
+    const navigate = useNavigate();
   useEffect(() => {
     requestFriendRequests();
   }, []);
@@ -49,6 +51,14 @@ export default function FriendsPage() {
   return (
     <>
       <div className="w-screen h-screen flex flex-col justify-center items-center">
+      <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
         {response && <p className="text-xl text-offwhite">{response}</p>}
         <form
           onSubmit={(e) => {

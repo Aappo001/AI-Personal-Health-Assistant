@@ -53,3 +53,13 @@ export type Message = {
     streaming?: boolean
     querierId?: number
 }
+
+export type HealthForm = {
+    id: number,
+    height?: number,
+    weight?: number,
+    exerciseDuration?: number,
+    sleepHours?: number,
+    createdAt: string,
+    modifiedAt: string,
+}

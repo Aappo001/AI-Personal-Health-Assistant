@@ -1,6 +1,7 @@
 import { useContext, useState } from "react";
 import useUserStore from "../store/hooks/useUserStore";
 import { WebsocketContext } from "./Chat";
+import { useNavigate } from "react-router-dom";
 
 export const ChatHome = () => {
   const user = useUserStore();
@@ -8,6 +9,7 @@ export const ChatHome = () => {
   //@ts-expect-error awaiting implementation
   const [selectedModel, setSelectedModel] = useState(3);
   const ws = useContext(WebsocketContext);
+  const navigate = useNavigate();
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
@@ -21,6 +23,14 @@ export const ChatHome = () => {
 
   return (
     <>
+          <div className="flex justify-end p-4">
+          <button
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-600"
+          >
+            Home
+          </button>
+        </div>
       <div className="flex flex-col justify-center items-center w-screen h-screen">
         <h1 className="text-5xl text-offwhite leading-relaxed my-16">
           {user.username

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?\n        ORDER BY created_at DESC\n        LIMIT ?",
+  "query": "SELECT * FROM (\n                    SELECT * FROM chat_messages WHERE conversation_id = ? AND id < ?\n                    ORDER BY created_at DESC\n                    LIMIT ?\n                ) \n                ORDER BY created_at ASC",
   "describe": {
     "columns": [
       {
@@ -64,5 +64,5 @@
       true
     ]
   },
-  "hash": "545722fd2e1348ab06daf4c2b6b8a92fab66d956e688efc924fd3fe56d54ec9d"
+  "hash": "bc174b7886123eb3ea6809532e388d923dee8cfc3e9f1e886bd6cd1829deec96"
 }
