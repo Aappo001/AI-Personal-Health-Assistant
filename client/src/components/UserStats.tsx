@@ -22,6 +22,12 @@ export default function UserStats() {
 
         {/* Buttons */}
         <div className="flex flex-col gap-4 w-64">
+        <button
+            onClick={() => navigate("/userprofileform")}
+            className="px-5 py-3 border-2 rounded-full font-bold w-full transition-colors border-lilac text-lilac hover:bg-lilac hover:text-main-black"
+          >
+            Create User Profile
+          </button>
           <button
             onClick={() => navigate("/healthform")}
             className="px-5 py-3 border-2 rounded-full font-bold w-full transition-colors border-lilac text-lilac hover:bg-lilac hover:text-main-black"
