@@ -16,6 +16,7 @@ import UserHealthForm from "./components/UserForm.tsx";
 import FriendsPage from "./components/FriendsPage.tsx";
 import WebsocketTesting from "./components/WebsocketTesting.tsx";
 import Chart from "./components/rechart.tsx";
+import UserProfileForm from "./components/UserProfile.tsx";
 
 const router = createBrowserRouter([
   {
@@ -75,6 +76,11 @@ const router = createBrowserRouter([
   {
     path: "/healthform",
     element: <UserHealthForm />,
+    errorElement: <PageNotFound />,
+  },
+   {
+    path: "/userprofileform",
+    element: <UserProfileForm />,
     errorElement: <PageNotFound />,
   },
   {
