@@ -152,12 +152,6 @@ pub enum SocketResponse {
     /// or when explicitly requested by the client
     #[serde(rename_all = "camelCase")]
     UserStatus { user_id: i64, status: OnlineStatus },
-    /// Not for the client, just to cancel AI generation
-    /// internally on the server
-    InternalCanceledGeneration,
-    /// Not for the client, just to cancel focus
-    /// internally on the server
-    InternalCanceledFocus,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -302,9 +296,9 @@ struct RequestMessage {
 
 #[derive(Deserialize, Debug, Default)]
 enum Pagination {
-    #[default]
     After,
     Around,
+    #[default]
     Before,
 }
 
@@ -1730,7 +1724,6 @@ async fn send_message(
     // All responses should be serialized to JSON
     // and sent as Text
     match msg {
-        SocketResponse::InternalCanceledGeneration | SocketResponse::InternalCanceledFocus => {}
         _ => {
             sender
                 .send(Message::Text(sonic_rs::to_string(&msg).unwrap()))
