@@ -15,7 +15,7 @@ use axum::{
         ConnectInfo, State,
     },
     http::{header::AUTHORIZATION, HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use base64::{engine::general_purpose, Engine};
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -62,25 +62,39 @@ pub async fn init_ws(
     // Doing this header shinanigans because websockets are doodoo
     // #5 on https://stackoverflow.com/a/77060459 explains what's going on here
     let Some(protocol) = headers.get("sec-websocket-protocol") else {
-        return Ok((StatusCode::BAD_REQUEST, "No protocol provided\nPlease provide your authorization token as the second protocol in the list").into_response());
+        return Err(AppError::UserError((StatusCode::BAD_REQUEST, "No protocol provided\nPlease provide your authorization token as the second protocol in the list".into())));
     };
     let protocols = match protocol.to_str() {
         Ok(k) => k,
-        Err(e) => return Ok((StatusCode::BAD_REQUEST, e.to_string()).into_response()),
+        Err(e) => {
+            return Err(AppError::UserError((
+                StatusCode::BAD_REQUEST,
+                e.to_string().into(),
+            )))
+        }
     }
     .split(',')
     .map(|s| s.trim())
     .collect::<Vec<&str>>();
     let Some(auth_token) = protocols.get(1) else {
-        return Ok((StatusCode::BAD_REQUEST, "No authorization token provided").into_response());
+        return Err(AppError::UserError((
+            StatusCode::UNAUTHORIZED,
+            "No authorization token provided".into(),
+        )));
     };
     // Authorization token must be base64 encoded, since protocols ase not allowed to contain
     // certain characters which are present in JWTs
     // No padding must be used because "=" is not allowed in the protocol
     let auth_token = match general_purpose::STANDARD_NO_PAD.decode(auth_token) {
         Ok(k) => String::from_utf8(k)?,
-        Err(e) => return Ok((StatusCode::BAD_REQUEST, e.to_string()).into_response()),
+        Err(e) => {
+            return Err(AppError::UserError((
+                StatusCode::BAD_REQUEST,
+                e.to_string().into(),
+            )))
+        }
     };
+
     headers.insert(AUTHORIZATION, HeaderValue::from_str(&auth_token)?);
     let user = authorize_user(&headers)?;
 
@@ -503,8 +517,10 @@ pub async fn handle_ws(stream: WebSocket, state: AppState, user: UserToken) {
                                     handle_message(msg, &state, &user, &socket, &connection).await
                                 {
                                     error!("Error handling message: {}", e);
-                                    let _ =
-                                        connection.channel.send(SocketResponse::Error(e.into()));
+                                    let _ = connection
+                                        .channel
+                                        .send(SocketResponse::Error(e.into()))
+                                        .await;
                                 }
                             }
                             Err(e) => {
@@ -1723,13 +1739,9 @@ async fn send_message(
     }
     // All responses should be serialized to JSON
     // and sent as Text
-    match msg {
-        _ => {
-            sender
-                .send(Message::Text(sonic_rs::to_string(&msg).unwrap()))
-                .await?;
-        }
-    }
+    sender
+        .send(Message::Text(sonic_rs::to_string(&msg).unwrap()))
+        .await?;
     Ok(true)
 }
 
