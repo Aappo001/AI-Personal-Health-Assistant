@@ -64,7 +64,7 @@ pub async fn init_ws(
     let Some(protocol) = headers.get("sec-websocket-protocol") else {
         return Err(AppError::UserError((StatusCode::BAD_REQUEST, "No protocol provided\nPlease provide your authorization token as the second protocol in the list".into())));
     };
-    let protocols = match protocol.to_str() {
+    let encoded_token = match protocol.to_str() {
         Ok(k) => k,
         Err(e) => {
             return Err(AppError::UserError((
@@ -75,8 +75,8 @@ pub async fn init_ws(
     }
     .split(',')
     .map(|s| s.trim())
-    .collect::<Vec<&str>>();
-    let Some(auth_token) = protocols.get(1) else {
+    .nth(1);
+    let Some(auth_token) = encoded_token else {
         return Err(AppError::UserError((
             StatusCode::UNAUTHORIZED,
             "No authorization token provided".into(),

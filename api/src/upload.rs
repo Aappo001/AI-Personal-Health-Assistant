@@ -16,7 +16,6 @@ use mime::Mime;
 use mime_guess::get_mime_extensions;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use tokio::{fs::File, io::AsyncWriteExt};
 
@@ -103,10 +102,10 @@ pub async fn upload_file(
     }
 
     // Calculate the hash of the file to use as the filename
-    let hash = Sha256::digest(&upload_file.data);
+    let hash = blake3::hash(&upload_file.data).to_hex();
 
     let file_name = format!(
-        "{:x}{}",
+        "{}{}",
         hash,
         match upload_file
             .mime
@@ -200,9 +199,9 @@ pub async fn upload_profile_image(
     let cropped_image = crop_square(&original_image).resize(512, 512, FilterType::Lanczos3);
 
     // Calculate the hash of the file to use as the filename
-    let hash = Sha256::digest(cropped_image.as_bytes());
+    let hash = blake3::hash(cropped_image.as_bytes()).to_hex();
 
-    let file_name = format!("{:x}.png", hash);
+    let file_name = format!("{}.png", hash);
 
     // Create the uploads directory if it does not
     // already exist and ignore the error if it does

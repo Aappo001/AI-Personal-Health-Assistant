@@ -53,7 +53,7 @@ rust-stemmers = "1.2.0"
 scc = "2.2.2"
 serde = "1.0.210"
 serde_json = "1.0.132"
-sha2 = "0.10.8"
+blake3 = "1.5.5"
 sonic-rs = "0.3.14"
 sqlx = { version = "0.8.2", features = ["runtime-tokio", "macros", "sqlite", "chrono", "json"] }
 tokio-tungstenite = "0.24.0"
