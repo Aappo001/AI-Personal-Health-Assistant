@@ -17,7 +17,7 @@ export default function Chat() {
 
   return (
     <WebsocketContext.Provider value={ws}>
-      <UserMapContext initialState={{ [userStore.id]: userStore.username }}>
+      <UserMapContext initialState={{ [userStore.id]: userStore }}>
         <Background color="black">
           <div className="relative h-screen">
             <ChatSidebar />

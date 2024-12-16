@@ -44,7 +44,7 @@ export default function ChatSidebar() {
     if (friendStore.length === 0) return;
     const newUserMap: UserIdMap = {};
     friendStore.forEach((friend) => {
-      userMap[friend.id] = friend.username;
+      userMap[friend.id] = friend;
     });
     userMapDispatch({ ...userMap, ...newUserMap });
   }, [friendStore]);

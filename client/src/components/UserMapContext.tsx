@@ -1,7 +1,8 @@
 import { createContext, SetStateAction, useContext, useState } from "react";
+import { PublicUser } from "../types";
 
 export type UserIdMap = {
-  [id: number]: string;
+  [id: number]: PublicUser;
 };
 
 const UserIdMapContext = createContext<UserIdMap>({} as UserIdMap);

@@ -26,7 +26,7 @@ export default function FriendsPage() {
       return;
     }
     const timerId = setTimeout(() => {
-      if (Object.values(userMap).some((user) => user === friend)) {
+      if (Object.values(userMap).some((user) => user.username === friend)) {
         setResponse("Already friends");
         return;
       }
