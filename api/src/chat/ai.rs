@@ -3,14 +3,14 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use dotenvy::var;
-use futures::StreamExt;
+use futures::{stream::FuturesUnordered, StreamExt};
 use reqwest::{header, StatusCode};
 use reqwest_streams::*;
 use serde::Serialize;
 // use sonic_rs::{json, JsonValueTrait, JsonValueMutTrait};
 use serde_json::json;
 use sqlx::SqlitePool;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     error::{AppError, AppJson},
@@ -236,9 +236,10 @@ pub async fn query_model(
         match bytes {
             Ok(ref mut bytes) => {
                 // Stream the individual messages to the clients
-                for sender in &senders {
-                    sender
-                        .send(SocketResponse::StreamData(StreamMessage {
+                let mut futures: FuturesUnordered<_> = senders
+                    .iter()
+                    .map(|sender| {
+                        sender.send(SocketResponse::StreamData(StreamMessage {
                             conversation_id,
                             message: Some(
                                 bytes["choices"][0]["delta"]["content"]
@@ -248,7 +249,12 @@ pub async fn query_model(
                             ),
                             querier_id: user.id,
                         }))
-                        .await?;
+                    })
+                    .collect();
+                while let Some(result) = futures.next().await {
+                    if let Err(e) = result {
+                        warn!("Failed to send stream message: {:?}", e);
+                    }
                 }
                 // Accumulate the response content
                 res_content += bytes["choices"][0]["delta"]["content"]

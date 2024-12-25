@@ -684,28 +684,49 @@ async fn emit_user_status(
     .boxed()
     .await?;
 
+    // Use a FuturesUnordered to collect all the futures
+    // and concurrently poll all of them at once to prevent a lagging receiver
+    // (slow user connection) from bottlenecking the entire process
     // For each conversation the user is in
-    for conversation in conversations.iter() {
-        // Find the user_id and connection_id of connections
-        // that are focused on the conversation
-        let Some(connections) = state
-            .conversation_connections
-            .read_async(conversation, |_, v| v.clone())
-            .await
-        else {
-            continue;
-        };
+    let outer_futures: FuturesUnordered<_> = conversations
+        .iter()
+        .map(|conversation| {
+            let status = status.clone();
+            async move {
+                // Find the user_id and connection_id of connections
+                // that are focused on the conversation
+                let Some(connections) = state
+                    .conversation_connections
+                    .read_async(conversation, |_, v| v.clone())
+                    .await
+                else {
+                    return;
+                };
+                // Use a second, nested FuturesUnordered to manage sending the messages to all
+                // users focused on a given conversation concurrently
+                let mut inner_futures: FuturesUnordered<_> = connections
+                    .iter()
+                    .map(|sender| {
+                        sender.send(SocketResponse::UserStatus {
+                            user_id,
+                            status: status.clone(),
+                        })
+                    })
+                    .collect();
+                while let Some(result) = inner_futures.next().await {
+                    if let Err(e) = result {
+                        warn!("Error sending user status: {}", e);
+                    }
+                }
+            }
+        })
+        .collect();
 
-        for sender in connections.iter() {
-            sender
-                .send(SocketResponse::UserStatus {
-                    user_id,
-                    status: status.clone(),
-                })
-                .await?;
-        }
-    }
-
+    // Wait for all the contained futures to complete
+    // Collecting the futures into a Vec of unit structs will not allocate memory
+    // so this is just more idiomatic than using `while let Some(...) = ...`
+    // See https://doc.rust-lang.org/std/vec/struct.Vec.html#guarantees
+    outer_futures.collect::<Vec<()>>().await;
     Ok(())
 }
 
