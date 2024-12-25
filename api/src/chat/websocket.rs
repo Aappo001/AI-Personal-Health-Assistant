@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use ahash::RandomState;
 use anyhow::anyhow;
 use atomicbox::AtomicOptionBox;
 use axum::{
@@ -1472,10 +1473,14 @@ async fn handle_message(
                                 None => {
                                     let _ = state
                                         .conversation_connections
-                                        .insert_async(
-                                            conversation_id,
-                                            HashSet::from([inner.channel.clone()]),
-                                        )
+                                        .insert_async(conversation_id, {
+                                            let mut set = HashSet::with_capacity_and_hasher(
+                                                3,
+                                                RandomState::new(),
+                                            );
+                                            set.insert(inner.channel.clone());
+                                            set
+                                        })
                                         .await;
                                 }
                             }

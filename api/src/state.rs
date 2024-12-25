@@ -9,6 +9,7 @@ use std::{
     },
 };
 
+use ahash::RandomState;
 use atomicbox::AtomicOptionBox;
 use axum::extract::FromRef;
 use chrono::DateTime;
@@ -26,12 +27,13 @@ pub struct AppState {
     pub(crate) client: reqwest::Client,
     /// This is a channel that we can use to send messages to all connected clients on the same
     /// conversation.
-    pub(crate) user_sockets: Arc<HashMap<i64, ConnectionState>>,
+    pub(crate) user_sockets: Arc<HashMap<i64, ConnectionState, RandomState>>,
     /// Map of conversation ids to the (user_id, connection_id) of users
     /// who are focused on that conversation.
     /// Using a RwLock to allow multiple users to be focused on the same
     /// conversation without having to clone the underlying HashSet.
-    pub(crate) conversation_connections: Arc<HashMap<i64, HashSet<Sender<SocketResponse>>>>,
+    pub(crate) conversation_connections:
+        Arc<HashMap<i64, HashSet<Sender<SocketResponse>, RandomState>, RandomState>>,
     /// Connection pool to the database. We use a pool to handle multiple requests concurrently
     /// without having to create a new connection for each request.
     pub(crate) pool: SqlitePool,
@@ -183,8 +185,8 @@ impl AppState {
                 })
                 .build()
                 .expect("Failed to build reqwest client"),
-            user_sockets: Arc::new(HashMap::new()),
-            conversation_connections: Arc::new(HashMap::new()),
+            user_sockets: Arc::new(HashMap::with_hasher(RandomState::new())),
+            conversation_connections: Arc::new(HashMap::with_hasher(RandomState::new())),
             pool,
             stemmer: Arc::new(Stemmer(rust_stemmers::Stemmer::create(
                 rust_stemmers::Algorithm::English,
