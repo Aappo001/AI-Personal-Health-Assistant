@@ -56,12 +56,12 @@ serde_json = "1.0.132"
 blake3 = "1.5.5"
 sonic-rs = "0.3.14"
 sqlx = { version = "0.8.2", features = ["runtime-tokio", "macros", "sqlite", "chrono", "json"] }
-tokio-tungstenite = "0.24.0"
+tokio-tungstenite = "0.26.1"
 tokio = { version = "1.40.0", features = ["full", "tracing"] }
 tower = "0.5.1"
 tower-http = { version = "0.6.1", features = ["trace", "fs", "cors", "compression-br", "compression-gzip", "compression-zstd", "sensitive-headers", "util", "timeout", "set-header"] }
-tower_governor = { version = "0.4.3", features = ["axum", "tracing"] }
+tower_governor = { version = "0.5.0", features = ["axum", "tracing"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-validator = { version = "0.18.1", features = ["derive"] }
+validator = { version = "0.19", features = ["derive"] }
 image = "0.25.5"
