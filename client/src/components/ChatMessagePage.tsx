@@ -4,7 +4,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { WebsocketContext } from "./Chat";
 import SpeechBubble from "./SpeechBubble";
 import useUserStore from "../store/hooks/useUserStore";
-import { getUserFromId, uploadAttachment } from "../utils/utils";
+import { BASE_URL, getUserFromId, uploadAttachment } from "../utils/utils";
 import Toggle from "./Toggle";
 import useConversationStore from "../store/hooks/useConversationStore";
 import useFileAttachment from "../store/hooks/useFileAttachment";
@@ -143,7 +143,7 @@ export default function ChatMessagePage() {
               isFromUser={message.userId === user.id}
               key={`${message.userId}-${i}`}
             >
-              {message.filePath && <MessageAttachment fileName={message.fileName} filePath={`http://localhost:3000/api/upload/${message.filePath}`} />}
+              {message.filePath && <MessageAttachment fileName={message.fileName} filePath={`${BASE_URL}/api/upload/${message.filePath}`} />}
             </SpeechBubble>
           );
         })}
